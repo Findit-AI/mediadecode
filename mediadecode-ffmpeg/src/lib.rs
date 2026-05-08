@@ -97,6 +97,25 @@
 //!
 //! Both surfaces compose: every safe entry point is implemented in
 //! terms of the corresponding unsafe one.
+//!
+//! # Panic-free entry points
+//!
+//! A handful of safe constructors panic on FFmpeg-side OOM (the
+//! 1-byte placeholder allocations behind frame slots, and `Clone`'s
+//! refcount bump). Each has a `try_*` counterpart that returns
+//! `Option<T>` for callers running in OOM-recoverable contexts:
+//!
+//! | Panicking                  | Fallible                       |
+//! | -------------------------- | ------------------------------ |
+//! | [`FfmpegBuffer::empty`]    | [`FfmpegBuffer::try_empty`]    |
+//! | `<FfmpegBuffer as Clone>::clone` | [`FfmpegBuffer::try_clone`] |
+//! | [`empty_video_frame`]      | [`try_empty_video_frame`]      |
+//! | [`empty_audio_frame`]      | [`try_empty_audio_frame`]      |
+//! | [`empty_subtitle_frame`]   | [`try_empty_subtitle_frame`]   |
+//!
+//! All other public APIs already return `Result` for the failure
+//! modes that can come from input data, FFmpeg state, or the OS
+//! (decoder open / send_packet / receive_frame / convert::*).
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(docsrs, allow(unused_attributes))]
 #![deny(missing_docs)]
@@ -123,7 +142,8 @@ pub use audio::{AudioDecodeError, FfmpegAudioStreamDecoder};
 pub use backend::Backend;
 pub use boundary::{
   audio_packet_from_ffmpeg, empty_audio_frame, empty_subtitle_frame, empty_video_frame,
-  from_av_pixel_format, is_hardware_pix_fmt, subtitle_packet_from_ffmpeg, video_packet_from_ffmpeg,
+  from_av_pixel_format, is_hardware_pix_fmt, subtitle_packet_from_ffmpeg, try_empty_audio_frame,
+  try_empty_subtitle_frame, try_empty_video_frame, video_packet_from_ffmpeg,
 };
 pub use buffer::FfmpegBuffer;
 pub use channel_layout::{

@@ -347,17 +347,33 @@ fn md_flags_from_av(flags: ffmpeg_next::packet::Flags) -> MdPacketFlags {
 /// All four plane slots get a 1-byte `FfmpegBuffer` placeholder
 /// (the array shape requires a buffer in every slot, but
 /// `plane_count = 0` reports them as inactive).
+///
+/// # Panics
+///
+/// Panics on FFmpeg-side OOM (the per-plane 1-byte allocation
+/// failed). Callers who need to recover from OOM should use
+/// [`try_empty_video_frame`].
 pub fn empty_video_frame() -> VideoFrame<PixelFormat, VideoFrameExtra, FfmpegBuffer> {
-  let placeholder = || Plane::new(FfmpegBuffer::empty(), 0);
-  let planes = [placeholder(), placeholder(), placeholder(), placeholder()];
-  VideoFrame::new(
+  try_empty_video_frame().expect("empty_video_frame: av_buffer_alloc returned null (OOM)")
+}
+
+/// Fallible counterpart to [`empty_video_frame`]. Returns `None` if
+/// any of the four placeholder allocations fails.
+pub fn try_empty_video_frame() -> Option<VideoFrame<PixelFormat, VideoFrameExtra, FfmpegBuffer>> {
+  let planes = [
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+  ];
+  Some(VideoFrame::new(
     0,
     0,
     PixelFormat::Unknown,
     planes,
     0,
     VideoFrameExtra::default(),
-  )
+  ))
 }
 
 /// Constructs an empty [`mediadecode::frame::AudioFrame`] suitable as
@@ -365,20 +381,31 @@ pub fn empty_video_frame() -> VideoFrame<PixelFormat, VideoFrameExtra, FfmpegBuf
 /// [`mediadecode::decoder::AudioStreamDecoder::receive_frame`]. Same
 /// behaviour as [`empty_video_frame`] — eight 1-byte plane
 /// placeholders, `plane_count = 0`.
+///
+/// # Panics
+///
+/// Panics on FFmpeg-side OOM. See [`try_empty_audio_frame`] for the
+/// fallible variant.
 pub fn empty_audio_frame()
 -> AudioFrame<SampleFormat, AudioChannelLayout, AudioFrameExtra, FfmpegBuffer> {
-  let placeholder = || Plane::new(FfmpegBuffer::empty(), 0);
+  try_empty_audio_frame().expect("empty_audio_frame: av_buffer_alloc returned null (OOM)")
+}
+
+/// Fallible counterpart to [`empty_audio_frame`]. Returns `None` if
+/// any of the eight placeholder allocations fails.
+pub fn try_empty_audio_frame()
+-> Option<AudioFrame<SampleFormat, AudioChannelLayout, AudioFrameExtra, FfmpegBuffer>> {
   let planes = [
-    placeholder(),
-    placeholder(),
-    placeholder(),
-    placeholder(),
-    placeholder(),
-    placeholder(),
-    placeholder(),
-    placeholder(),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
+    Plane::new(FfmpegBuffer::try_empty()?, 0),
   ];
-  AudioFrame::new(
+  Some(AudioFrame::new(
     0,
     0,
     0,
@@ -387,7 +414,7 @@ pub fn empty_audio_frame()
     planes,
     0,
     AudioFrameExtra::default(),
-  )
+  ))
 }
 
 /// Constructs an empty [`mediadecode::frame::SubtitleFrame`] suitable
@@ -395,15 +422,26 @@ pub fn empty_audio_frame()
 /// [`mediadecode::decoder::SubtitleDecoder::receive_frame`]. The
 /// payload is an empty `Text` placeholder; the decoder overwrites
 /// it on success.
+///
+/// # Panics
+///
+/// Panics on FFmpeg-side OOM. See [`try_empty_subtitle_frame`] for
+/// the fallible variant.
 pub fn empty_subtitle_frame() -> SubtitleFrame<SubtitleFrameExtra, FfmpegBuffer> {
-  let buf = FfmpegBuffer::copy_from_slice(&[]).unwrap_or_else(FfmpegBuffer::empty);
-  SubtitleFrame::new(
+  try_empty_subtitle_frame().expect("empty_subtitle_frame: av_buffer_alloc returned null (OOM)")
+}
+
+/// Fallible counterpart to [`empty_subtitle_frame`]. Returns `None`
+/// if the placeholder allocation fails.
+pub fn try_empty_subtitle_frame() -> Option<SubtitleFrame<SubtitleFrameExtra, FfmpegBuffer>> {
+  let buf = FfmpegBuffer::copy_from_slice(&[]).or_else(FfmpegBuffer::try_empty)?;
+  Some(SubtitleFrame::new(
     SubtitlePayload::Text {
       text: buf,
       language: None,
     },
     SubtitleFrameExtra::default(),
-  )
+  ))
 }
 
 #[cfg(test)]

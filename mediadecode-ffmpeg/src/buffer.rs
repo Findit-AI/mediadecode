@@ -117,20 +117,32 @@ impl FfmpegBuffer {
   /// decoder overwrites the planes on success, but the slot needs a
   /// non-null buffer to satisfy the array shape.
   ///
+  /// # Panics
+  ///
   /// Panics if FFmpeg fails to allocate (out-of-memory). Allocations
   /// of one byte never realistically fail; this matches the
-  /// behaviour of `Clone` on a populated `FfmpegBuffer`.
+  /// behaviour of `Clone` on a populated `FfmpegBuffer`. Callers who
+  /// need to recover from OOM should use [`Self::try_empty`].
   #[inline]
   pub fn empty() -> Self {
+    Self::try_empty().expect("FfmpegBuffer::empty: av_buffer_alloc returned null (OOM)")
+  }
+
+  /// Fallible counterpart to [`Self::empty`]. Returns `None` if the
+  /// 1-byte `av_buffer_alloc` fails (out-of-memory). Use this when
+  /// you'd rather propagate an error than panic.
+  #[inline]
+  pub fn try_empty() -> Option<Self> {
     use ffmpeg_next::ffi::av_buffer_alloc;
     let raw = unsafe { av_buffer_alloc(1) };
-    assert!(
-      !raw.is_null(),
-      "FfmpegBuffer::empty: av_buffer_alloc returned null (OOM)"
-    );
-    let mut buf = unsafe { Self::take(raw) }.expect("FfmpegBuffer::empty: take(raw) was null");
+    if raw.is_null() {
+      return None;
+    }
+    // SAFETY: `raw` is non-null and freshly allocated; we transfer
+    // its single reference to the new `FfmpegBuffer`.
+    let mut buf = unsafe { Self::take(raw) }?;
     buf.len = 0;
-    buf
+    Some(buf)
   }
 
   /// Borrows the refcounted payload of an `ffmpeg::Packet` as an
@@ -304,23 +316,34 @@ impl FfmpegBuffer {
   pub fn offset(&self) -> usize {
     self.offset
   }
-}
 
-impl Clone for FfmpegBuffer {
-  fn clone(&self) -> Self {
-    // SAFETY: inner is non-null per invariant; av_buffer_ref atomically
-    // bumps the refcount. A null return means OOM, which is exceptional
-    // — we panic rather than silently truncate to a dangling Buffer.
+  /// Fallible counterpart to [`Clone::clone`]. Returns `None` if
+  /// `av_buffer_ref` fails (out-of-memory) instead of panicking.
+  /// Use this in OOM-recoverable paths; the `Clone` impl panics on
+  /// the same failure to match Rust's standard `Clone` contract.
+  #[inline]
+  pub fn try_clone(&self) -> Option<Self> {
+    // SAFETY: inner is non-null per invariant; av_buffer_ref
+    // atomically bumps the refcount and returns null on OOM only.
     let new_ref = unsafe { av_buffer_ref(self.inner) };
-    assert!(
-      !new_ref.is_null(),
-      "FfmpegBuffer::clone: av_buffer_ref returned null (OOM)",
-    );
-    Self {
+    if new_ref.is_null() {
+      return None;
+    }
+    Some(Self {
       inner: new_ref,
       offset: self.offset,
       len: self.len,
-    }
+    })
+  }
+}
+
+impl Clone for FfmpegBuffer {
+  /// Refcounts the underlying `AVBufferRef`. **Panics** on OOM (see
+  /// [`Self::try_clone`] for the fallible variant).
+  fn clone(&self) -> Self {
+    self
+      .try_clone()
+      .expect("FfmpegBuffer::clone: av_buffer_ref returned null (OOM)")
   }
 }
 
