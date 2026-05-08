@@ -73,6 +73,60 @@ pub trait VideoFrameSource {
     ) -> Result<(), Self::Error>;
 }
 
+/// Push-style audio decoder.
+pub trait AudioStreamDecoder {
+    /// Backend vocabulary.
+    type Adapter: AudioAdapter;
+    /// Buffer type.
+    type Buffer: AsRef<[u8]>;
+    /// Decoder-specific error.
+    type Error;
+    /// Submits a compressed audio packet.
+    fn send_packet(
+        &mut self,
+        packet: &AudioPacket<Self::Adapter, Self::Buffer>,
+    ) -> Result<(), Self::Error>;
+    /// Drains a decoded frame.
+    fn receive_frame(
+        &mut self,
+        dst: &mut AudioFrame<Self::Adapter, Self::Buffer>,
+    ) -> Result<(), Self::Error>;
+    /// Signals EOF.
+    fn send_eof(&mut self) -> Result<(), Self::Error>;
+    /// Flushes internal state.
+    fn flush(&mut self) -> Result<(), Self::Error>;
+}
+
+/// Pull-style audio frame source. Caller requests blocks by sample
+/// offset.
+///
+/// Backends: R3D, BRAW (audio in companion track of the same clip).
+pub trait AudioFrameSource {
+    /// Backend vocabulary.
+    type Adapter: AudioAdapter;
+    /// Buffer type.
+    type Buffer: AsRef<[u8]>;
+    /// Backend-specific clip-level metadata.
+    type ClipMeta;
+    /// Decoder-specific error.
+    type Error;
+    /// Total sample count across all channels.
+    fn sample_count(&self) -> u64;
+    /// Sample rate (Hz).
+    fn sample_rate(&self) -> u32;
+    /// Channel count.
+    fn channel_count(&self) -> u8;
+    /// Backend-specific clip metadata.
+    fn clip_meta(&self) -> &Self::ClipMeta;
+    /// Decodes a block starting at `sample_offset`, of `sample_count` samples.
+    fn decode_block(
+        &mut self,
+        sample_offset: u64,
+        sample_count: u32,
+        dst: &mut AudioFrame<Self::Adapter, Self::Buffer>,
+    ) -> Result<(), Self::Error>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,5 +186,51 @@ mod tests {
         fn _source<D: VideoFrameSource>() {}
         _stream::<LoopVideoStream>();
         _source::<LoopVideoSource>();
+    }
+
+    pub(crate) struct ALoop;
+    impl AudioAdapter for ALoop {
+        type CodecId = u32;
+        type SampleFormat = u32;
+        type ChannelLayout = u32;
+        type PacketExtra = ();
+        type FrameExtra = ();
+    }
+
+    pub(crate) struct LoopAudioStream;
+
+    impl AudioStreamDecoder for LoopAudioStream {
+        type Adapter = ALoop;
+        type Buffer = &'static [u8];
+        type Error = LoopError;
+        fn send_packet(&mut self, _: &AudioPacket<ALoop, &'static [u8]>)
+            -> Result<(), LoopError> { Ok(()) }
+        fn receive_frame(&mut self, _: &mut AudioFrame<ALoop, &'static [u8]>)
+            -> Result<(), LoopError> { Err(LoopError) }
+        fn send_eof(&mut self) -> Result<(), LoopError> { Ok(()) }
+        fn flush(&mut self) -> Result<(), LoopError> { Ok(()) }
+    }
+
+    pub(crate) struct LoopAudioSource;
+
+    impl AudioFrameSource for LoopAudioSource {
+        type Adapter = ALoop;
+        type Buffer = &'static [u8];
+        type ClipMeta = ();
+        type Error = LoopError;
+        fn sample_count(&self) -> u64 { 0 }
+        fn sample_rate(&self) -> u32 { 48_000 }
+        fn channel_count(&self) -> u8 { 2 }
+        fn clip_meta(&self) -> &() { &() }
+        fn decode_block(&mut self, _: u64, _: u32, _: &mut AudioFrame<ALoop, &'static [u8]>)
+            -> Result<(), LoopError> { Err(LoopError) }
+    }
+
+    #[test]
+    fn audio_traits_are_implementable() {
+        fn _stream<D: AudioStreamDecoder>() {}
+        fn _source<D: AudioFrameSource>() {}
+        _stream::<LoopAudioStream>();
+        _source::<LoopAudioSource>();
     }
 }
