@@ -139,11 +139,15 @@ impl Frame {
   }
 
   /// Bytes per row for `plane`. Reads `AVFrame.linesize[plane]` directly.
-  /// Panics if `plane >= planes()` or the linesize is non-positive (FFmpeg
-  /// allows negative linesize for vertically-flipped formats; this crate
-  /// does not surface those — to test safely, prefer the non-panicking
-  /// accessors [`Self::row`] / [`Self::rows`] / [`Self::row_bytes`] /
-  /// [`Self::as_ptr`], which return `None` on unsupported layouts).
+  ///
+  /// # Panics
+  ///
+  /// Panics if `plane >= planes()` or the linesize is non-positive
+  /// (FFmpeg allows negative linesize for vertically-flipped formats;
+  /// this crate does not surface those). Callers who need to handle
+  /// either case without panicking should use [`Self::try_stride`],
+  /// or the non-panicking pixel accessors [`Self::row`] / [`Self::rows`]
+  /// / [`Self::row_bytes`] / [`Self::as_ptr`].
   pub fn stride(&self, plane: usize) -> usize {
     let n = self.planes();
     assert!(
@@ -158,6 +162,23 @@ impl Frame {
        (negative linesize means vertically-flipped — not supported)"
     );
     linesize as usize
+  }
+
+  /// Fallible counterpart to [`Self::stride`]. Returns `None` when
+  /// `plane` is out of bounds *or* the linesize is non-positive (the
+  /// two conditions [`Self::stride`] panics on). Use this when the
+  /// frame's plane count or layout is caller-controlled / data-driven
+  /// and either case should be handled rather than aborting.
+  pub fn try_stride(&self, plane: usize) -> Option<usize> {
+    if plane >= self.planes() {
+      return None;
+    }
+    // SAFETY: bounds-checked above; linesize is `[c_int; 8]`.
+    let linesize: i32 = unsafe { (*self.inner.as_ptr()).linesize[plane] };
+    if linesize <= 0 {
+      return None;
+    }
+    Some(linesize as usize)
   }
 
   /// Visible byte width of `plane` — the number of initialized bytes at

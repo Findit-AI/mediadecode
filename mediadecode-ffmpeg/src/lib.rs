@@ -112,6 +112,7 @@
 //! | [`empty_video_frame`]      | [`try_empty_video_frame`]      |
 //! | [`empty_audio_frame`]      | [`try_empty_audio_frame`]      |
 //! | [`empty_subtitle_frame`]   | [`try_empty_subtitle_frame`]   |
+//! | [`Frame::stride`]          | [`Frame::try_stride`]          |
 //!
 //! All other public APIs already return `Result` for the failure
 //! modes that can come from input data, FFmpeg state, or the OS
