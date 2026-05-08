@@ -48,7 +48,7 @@ mod adapter;
 mod audio;
 mod backend;
 mod buffer;
-mod channel_layout;
+pub mod channel_layout;
 mod codec_id;
 pub mod convert;
 mod decoder;
@@ -65,7 +65,10 @@ pub use adapter::Ffmpeg;
 pub use audio::{AudioDecodeError, FfmpegAudioStreamDecoder};
 pub use backend::Backend;
 pub use buffer::FfmpegBuffer;
-pub use channel_layout::ChannelLayout;
+pub use channel_layout::{
+  audio_channel_layout_from_ffmpeg, audio_channel_order_kind_from_ffmpeg,
+  channel_layout_kind_from_ffmpeg,
+};
 pub use codec_id::CodecId;
 pub use decoder::VideoDecoder;
 pub use error::{Error, Result};

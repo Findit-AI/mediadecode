@@ -7,9 +7,9 @@
 //! Decoder) reads cleanly: `VideoPacket<Ffmpeg, FfmpegBuffer>` etc.
 
 use mediadecode::adapter::{AudioAdapter, SubtitleAdapter, VideoAdapter};
+use mediadecode::channel::AudioChannelLayout;
 
 use crate::{
-  channel_layout::ChannelLayout,
   codec_id::CodecId,
   extras::{
     AudioFrameExtra, AudioPacketExtra, SubtitleFrameExtra, SubtitlePacketExtra, VideoFrameExtra,
@@ -38,7 +38,7 @@ impl VideoAdapter for Ffmpeg {
 impl AudioAdapter for Ffmpeg {
   type CodecId = CodecId;
   type SampleFormat = SampleFormat;
-  type ChannelLayout = ChannelLayout;
+  type ChannelLayout = AudioChannelLayout;
   type PacketExtra = AudioPacketExtra;
   type FrameExtra = AudioFrameExtra;
 }
