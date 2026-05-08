@@ -1,33 +1,61 @@
-//! `mediadecode::AudioStreamDecoder` implementation — currently a
-//! stub. Trait shape is locked in so generic code can name the type;
-//! method bodies return [`AudioDecodeError::NotImplemented`] until a
-//! follow-up commit wires up `ffmpeg::decoder::Audio`.
+//! `mediadecode::AudioStreamDecoder` impl backed by
+//! `ffmpeg::decoder::Audio`.
+//!
+//! Mirrors the shape of [`crate::FfmpegVideoStreamDecoder`] without
+//! the HW-fallback wrinkle — audio decoders never go through a
+//! hardware backend in the FFmpeg world, so there's no probe, no
+//! state machine, just `send_packet` / `receive_frame` over the
+//! software decoder.
+//!
+//! Frames produced via [`crate::convert::av_frame_to_audio_frame`]
+//! carry zero-copy `FfmpegBuffer` plane views into the source
+//! `AVFrame`'s refcounted buffers; the consumer can hold the frame
+//! across decoder calls without copying.
 
-use mediadecode::{Timebase, decoder::AudioStreamDecoder, frame::AudioFrame, packet::AudioPacket};
+use ffmpeg_next::{codec::Parameters, frame};
+use mediadecode::{
+  Timebase, channel::AudioChannelLayout, decoder::AudioStreamDecoder, frame::AudioFrame,
+  packet::AudioPacket,
+};
 
-use crate::{Ffmpeg, FfmpegBuffer};
+use crate::{
+  Error, Ffmpeg, FfmpegBuffer, boundary, convert,
+  extras::{AudioFrameExtra, AudioPacketExtra},
+  sample_format::SampleFormat,
+};
 
-/// Stub `AudioStreamDecoder` impl that wraps `ffmpeg::decoder::Audio`.
-///
-/// The trait surface is in place so downstream code can write
-/// `decoder: impl AudioStreamDecoder<Adapter = Ffmpeg, Buffer = FfmpegBuffer>`
-/// today; the decode loop itself is a follow-up.
+/// `mediadecode::AudioStreamDecoder` impl wrapping `ffmpeg::decoder::Audio`.
 pub struct FfmpegAudioStreamDecoder {
-  /// Source-stream time base, used for labeling produced frames.
+  decoder: ffmpeg_next::decoder::Audio,
+  scratch: frame::Audio,
   time_base: Timebase,
 }
 
 impl FfmpegAudioStreamDecoder {
-  /// Constructs a stub decoder. The full constructor (taking codec
-  /// parameters and opening an `ffmpeg::decoder::Audio`) lands in a
-  /// follow-up commit.
-  pub fn new(time_base: Timebase) -> Self {
-    Self { time_base }
+  /// Opens an audio decoder for the given codec parameters.
+  pub fn open(parameters: Parameters, time_base: Timebase) -> Result<Self, AudioDecodeError> {
+    let ctx = ffmpeg_next::codec::Context::from_parameters(parameters)
+      .map_err(|e| AudioDecodeError::Decode(Error::Ffmpeg(e)))?;
+    let decoder = ctx
+      .decoder()
+      .audio()
+      .map_err(|e| AudioDecodeError::Decode(Error::Ffmpeg(e)))?;
+    Ok(Self {
+      decoder,
+      scratch: frame::Audio::empty(),
+      time_base,
+    })
   }
 
   /// Returns the time base associated with the source stream.
   pub fn time_base(&self) -> Timebase {
     self.time_base
+  }
+
+  /// Borrow the wrapped `ffmpeg::decoder::Audio` (e.g. to query
+  /// `channels()` / `rate()` / `format()`).
+  pub fn inner(&self) -> &ffmpeg_next::decoder::Audio {
+    &self.decoder
   }
 }
 
@@ -38,36 +66,54 @@ impl AudioStreamDecoder for FfmpegAudioStreamDecoder {
 
   fn send_packet(
     &mut self,
-    _packet: &AudioPacket<crate::extras::AudioPacketExtra, Self::Buffer>,
+    packet: &AudioPacket<AudioPacketExtra, Self::Buffer>,
   ) -> Result<(), Self::Error> {
-    Err(AudioDecodeError::NotImplemented)
+    let av_pkt = boundary::ffmpeg_packet_from_audio_packet(packet);
+    self
+      .decoder
+      .send_packet(&av_pkt)
+      .map_err(|e| AudioDecodeError::Decode(Error::Ffmpeg(e)))
   }
 
   fn receive_frame(
     &mut self,
-    _dst: &mut AudioFrame<
-      crate::sample_format::SampleFormat,
-      mediadecode::channel::AudioChannelLayout,
-      crate::extras::AudioFrameExtra,
-      Self::Buffer,
-    >,
+    dst: &mut AudioFrame<SampleFormat, AudioChannelLayout, AudioFrameExtra, Self::Buffer>,
   ) -> Result<(), Self::Error> {
-    Err(AudioDecodeError::NotImplemented)
+    self
+      .decoder
+      .receive_frame(&mut self.scratch)
+      .map_err(|e| AudioDecodeError::Decode(Error::Ffmpeg(e)))?;
+    // SAFETY: scratch was just filled by receive_frame; convert
+    // refcounts each plane buffer it pulls into the produced
+    // AudioFrame so the scratch can be reused on the next call.
+    let new_frame =
+      unsafe { convert::av_frame_to_audio_frame(self.scratch.as_ptr(), self.time_base) }
+        .map_err(AudioDecodeError::Convert)?;
+    *dst = new_frame;
+    Ok(())
   }
 
   fn send_eof(&mut self) -> Result<(), Self::Error> {
-    Err(AudioDecodeError::NotImplemented)
+    self
+      .decoder
+      .send_eof()
+      .map_err(|e| AudioDecodeError::Decode(Error::Ffmpeg(e)))
   }
 
   fn flush(&mut self) -> Result<(), Self::Error> {
-    Err(AudioDecodeError::NotImplemented)
+    self.decoder.flush();
+    Ok(())
   }
 }
 
 /// Errors from [`FfmpegAudioStreamDecoder`].
 #[derive(thiserror::Error, Debug)]
 pub enum AudioDecodeError {
-  /// The audio decoder methods aren't wired up yet.
-  #[error("FfmpegAudioStreamDecoder isn't implemented yet — coming in a follow-up commit")]
-  NotImplemented,
+  /// The wrapped `ffmpeg::decoder::Audio` reported an error.
+  #[error("{0}")]
+  Decode(#[from] Error),
+  /// Conversion from FFmpeg's `AVFrame` to mediadecode's `AudioFrame`
+  /// failed.
+  #[error("audio frame conversion failed: {0}")]
+  Convert(crate::convert::ConvertError),
 }

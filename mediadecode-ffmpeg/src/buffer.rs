@@ -104,6 +104,99 @@ impl FfmpegBuffer {
     })
   }
 
+  /// Allocates a 1-byte refcounted `AVBufferRef` and exposes a
+  /// zero-length view over it. Useful as a placeholder when
+  /// constructing an "empty" `mediadecode::VideoFrame` /
+  /// `AudioFrame` to pass to a decoder's `receive_frame` — the
+  /// decoder overwrites the planes on success, but the slot needs a
+  /// non-null buffer to satisfy the array shape.
+  ///
+  /// Panics if FFmpeg fails to allocate (out-of-memory). Allocations
+  /// of one byte never realistically fail; this matches the
+  /// behaviour of `Clone` on a populated `FfmpegBuffer`.
+  #[inline]
+  pub fn empty() -> Self {
+    use ffmpeg_next::ffi::av_buffer_alloc;
+    let raw = unsafe { av_buffer_alloc(1) };
+    assert!(
+      !raw.is_null(),
+      "FfmpegBuffer::empty: av_buffer_alloc returned null (OOM)"
+    );
+    let mut buf = unsafe { Self::take(raw) }.expect("FfmpegBuffer::empty: take(raw) was null");
+    buf.len = 0;
+    buf
+  }
+
+  /// Borrows the refcounted payload of an `ffmpeg::Packet` as an
+  /// `FfmpegBuffer` view. The packet's `AVBufferRef` is shared via
+  /// refcount bump — no copy. Returns `None` when the packet has no
+  /// buffer attached (typical after EOF).
+  ///
+  /// This is the safe replacement for `unsafe { from_ref(packet.buf) }`.
+  /// It's sound because `&packet` keeps the AVPacket live for the
+  /// duration of the call, and the refcount bump is FFmpeg's
+  /// documented contract.
+  #[inline]
+  pub fn from_packet(packet: &ffmpeg_next::Packet) -> Option<Self> {
+    use ffmpeg_next::packet::Ref;
+    // SAFETY: `packet` keeps the AVPacket live for the duration of
+    // this call; `.buf` is a public field on AVPacket and may be
+    // null. `from_ref` handles the null case and the refcount bump.
+    let buf_ptr = unsafe { (*packet.as_ptr()).buf };
+    unsafe { Self::from_ref(buf_ptr) }
+  }
+
+  /// Borrows one of an `ffmpeg::Frame`'s plane buffers
+  /// (`AVFrame.buf[plane_idx]`) as an `FfmpegBuffer` view. The view
+  /// covers the underlying `AVBufferRef`'s full size; for
+  /// per-plane subviews into a multi-plane shared allocation see
+  /// [`crate::convert::video_frame_from`].
+  ///
+  /// Returns `None` when `plane_idx >= 8` or the plane has no
+  /// buffer attached.
+  #[inline]
+  pub fn from_frame_plane(frame: &ffmpeg_next::Frame, plane_idx: usize) -> Option<Self> {
+    if plane_idx >= 8 {
+      return None;
+    }
+    // SAFETY: `frame` keeps the AVFrame live for the duration of
+    // this call; `buf[]` is a public fixed-size array on AVFrame.
+    let buf_ptr = unsafe { (*frame.as_ptr()).buf[plane_idx] };
+    unsafe { Self::from_ref(buf_ptr) }
+  }
+
+  /// Allocates a fresh refcounted `AVBufferRef` and copies `bytes` into
+  /// it. Returns `None` if the FFmpeg allocation fails.
+  ///
+  /// Useful for adapting non-refcounted FFmpeg payloads (e.g. subtitle
+  /// `AVSubtitleRect.text` / `.ass` / `.data[0]`) into the refcounted
+  /// `FfmpegBuffer` shape the rest of the crate carries.
+  #[inline]
+  pub fn copy_from_slice(bytes: &[u8]) -> Option<Self> {
+    use ffmpeg_next::ffi::av_buffer_alloc;
+    let len = bytes.len();
+    // av_buffer_alloc(0) is allowed on most platforms but isn't
+    // portable; force a 1-byte allocation in that case so the resulting
+    // buffer is non-null.
+    let alloc_size = len.max(1);
+    let raw = unsafe { av_buffer_alloc(alloc_size as _) };
+    if raw.is_null() {
+      return None;
+    }
+    if len > 0 {
+      // SAFETY: raw is non-null and freshly allocated with `alloc_size >= len`
+      // bytes; the source slice is valid for `len` reads.
+      unsafe {
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), (*raw).data, len);
+      }
+    }
+    Some(Self {
+      inner: raw,
+      offset: 0,
+      len,
+    })
+  }
+
   /// Takes ownership of an existing `AVBufferRef` without bumping the
   /// refcount. The view covers the buffer's full size. Use this when
   /// the caller's reference will be dropped (e.g. transferring out of

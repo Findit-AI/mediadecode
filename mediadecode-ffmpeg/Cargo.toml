@@ -12,7 +12,7 @@ keywords      = ["ffmpeg", "decoder", "video", "audio", "mediadecode"]
 categories    = ["multimedia", "multimedia::video", "multimedia::audio"]
 
 [dependencies]
-mediadecode = { workspace = true, features = ["std"] }
+mediadecode = { workspace = true, features = ["std", "alloc"] }
 ffmpeg-next = { workspace = true }
 smol_str    = { workspace = true }
 thiserror   = { workspace = true }

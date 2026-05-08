@@ -7,9 +7,22 @@
 //! discriminant set).
 
 use ffmpeg_next::{Packet, ffi::AVPixelFormat};
-use mediadecode::{PixelFormat, packet::PacketFlags as MdPacketFlags};
+use mediadecode::{
+  PixelFormat, Timestamp,
+  channel::AudioChannelLayout,
+  frame::{AudioFrame, Plane, SubtitleFrame, VideoFrame},
+  packet::{AudioPacket, PacketFlags as MdPacketFlags, SubtitlePacket, VideoPacket},
+  subtitle::SubtitlePayload,
+};
 
-use crate::{FfmpegBuffer, extras::VideoPacketExtra};
+use crate::{
+  FfmpegBuffer,
+  extras::{
+    AudioFrameExtra, AudioPacketExtra, SubtitleFrameExtra, SubtitlePacketExtra, VideoFrameExtra,
+    VideoPacketExtra,
+  },
+  sample_format::SampleFormat,
+};
 
 /// Maps a raw `AVFrame.format` integer (i.e. the value of an
 /// `AVPixelFormat` enum variant) onto [`mediadecode::PixelFormat`].
@@ -166,6 +179,243 @@ pub fn ffmpeg_packet_from_video_packet(
   // Stream index from the extras (stays 0 if the caller didn't set it).
   out.set_stream(packet.extra().stream_index as usize);
   out
+}
+
+/// Builds an `ffmpeg::Packet` from a [`mediadecode::AudioPacket`].
+/// Same shape as [`ffmpeg_packet_from_video_packet`] — bytes are
+/// copied; pts/dts/duration/flags/stream_index are forwarded.
+pub fn ffmpeg_packet_from_audio_packet(
+  packet: &mediadecode::packet::AudioPacket<AudioPacketExtra, FfmpegBuffer>,
+) -> Packet {
+  let data = packet.data().as_ref();
+  let mut out = Packet::copy(data);
+  if let Some(ts) = packet.pts() {
+    out.set_pts(Some(ts.pts()));
+  }
+  if let Some(ts) = packet.dts() {
+    out.set_dts(Some(ts.pts()));
+  }
+  if let Some(d) = packet.duration() {
+    out.set_duration(d.pts());
+  }
+  let flags = packet.flags();
+  let mut av_flags = ffmpeg_next::packet::Flags::empty();
+  if flags.contains(MdPacketFlags::KEY) {
+    av_flags |= ffmpeg_next::packet::Flags::KEY;
+  }
+  if flags.contains(MdPacketFlags::CORRUPT) {
+    av_flags |= ffmpeg_next::packet::Flags::CORRUPT;
+  }
+  out.set_flags(av_flags);
+  out.set_stream(packet.extra().stream_index as usize);
+  out
+}
+
+/// Builds an `ffmpeg::Packet` from a [`mediadecode::SubtitlePacket`].
+/// Bytes copied; pts/duration/flags/stream_index forwarded. Subtitle
+/// packets have no `dts` in the mediadecode model.
+pub fn ffmpeg_packet_from_subtitle_packet(
+  packet: &mediadecode::packet::SubtitlePacket<SubtitlePacketExtra, FfmpegBuffer>,
+) -> Packet {
+  let data = packet.data().as_ref();
+  let mut out = Packet::copy(data);
+  if let Some(ts) = packet.pts() {
+    out.set_pts(Some(ts.pts()));
+  }
+  if let Some(d) = packet.duration() {
+    out.set_duration(d.pts());
+  }
+  let flags = packet.flags();
+  let mut av_flags = ffmpeg_next::packet::Flags::empty();
+  if flags.contains(MdPacketFlags::KEY) {
+    av_flags |= ffmpeg_next::packet::Flags::KEY;
+  }
+  if flags.contains(MdPacketFlags::CORRUPT) {
+    av_flags |= ffmpeg_next::packet::Flags::CORRUPT;
+  }
+  out.set_flags(av_flags);
+  out.set_stream(packet.extra().stream_index as usize);
+  out
+}
+
+// ---------------------------------------------------------------------------
+//  Safe wrappers — `&ffmpeg::Packet` → `mediadecode::*Packet`.
+// ---------------------------------------------------------------------------
+
+/// Wraps a borrowed [`ffmpeg::Packet`] as a
+/// [`mediadecode::packet::VideoPacket`]. The compressed payload is
+/// shared with the source `AVPacket` via refcount bump (no copy).
+/// Timestamps, duration, key/corrupt flags, and the source stream
+/// index are forwarded to the produced packet.
+///
+/// Returns `None` when the source packet has no buffer attached
+/// (empty packet — typical after EOF). Caller can also fill in
+/// [`VideoPacketExtra::byte_pos`] / `side_data` post-construction
+/// if they need those.
+pub fn video_packet_from_ffmpeg(
+  packet: &Packet,
+) -> Option<VideoPacket<VideoPacketExtra, FfmpegBuffer>> {
+  let buf = FfmpegBuffer::from_packet(packet)?;
+  let mut out = VideoPacket::new(
+    buf,
+    VideoPacketExtra {
+      stream_index: packet.stream() as i32,
+      byte_pos: None,
+      side_data: std::vec::Vec::new(),
+    },
+  )
+  .with_flags(md_flags_from_av(packet.flags()));
+  if let Some(p) = packet.pts() {
+    out = out.with_pts(Some(Timestamp::new(p, mediadecode::Timebase::default())));
+  }
+  if let Some(d) = packet.dts() {
+    out = out.with_dts(Some(Timestamp::new(d, mediadecode::Timebase::default())));
+  }
+  let dur = packet.duration();
+  if dur > 0 {
+    out = out.with_duration(Some(Timestamp::new(dur, mediadecode::Timebase::default())));
+  }
+  Some(out)
+}
+
+/// Wraps a borrowed [`ffmpeg::Packet`] as a
+/// [`mediadecode::packet::AudioPacket`]. Same shape as
+/// [`video_packet_from_ffmpeg`] — refcounted payload, forwarded
+/// metadata.
+pub fn audio_packet_from_ffmpeg(
+  packet: &Packet,
+) -> Option<AudioPacket<AudioPacketExtra, FfmpegBuffer>> {
+  let buf = FfmpegBuffer::from_packet(packet)?;
+  let mut out = AudioPacket::new(
+    buf,
+    AudioPacketExtra {
+      stream_index: packet.stream() as i32,
+      byte_pos: None,
+      side_data: std::vec::Vec::new(),
+    },
+  )
+  .with_flags(md_flags_from_av(packet.flags()));
+  if let Some(p) = packet.pts() {
+    out = out.with_pts(Some(Timestamp::new(p, mediadecode::Timebase::default())));
+  }
+  if let Some(d) = packet.dts() {
+    out = out.with_dts(Some(Timestamp::new(d, mediadecode::Timebase::default())));
+  }
+  let dur = packet.duration();
+  if dur > 0 {
+    out = out.with_duration(Some(Timestamp::new(dur, mediadecode::Timebase::default())));
+  }
+  Some(out)
+}
+
+/// Wraps a borrowed [`ffmpeg::Packet`] as a
+/// [`mediadecode::packet::SubtitlePacket`]. Subtitle packets have no
+/// `dts` in the mediadecode model; everything else mirrors
+/// [`video_packet_from_ffmpeg`].
+pub fn subtitle_packet_from_ffmpeg(
+  packet: &Packet,
+) -> Option<SubtitlePacket<SubtitlePacketExtra, FfmpegBuffer>> {
+  let buf = FfmpegBuffer::from_packet(packet)?;
+  let mut out = SubtitlePacket::new(
+    buf,
+    SubtitlePacketExtra {
+      stream_index: packet.stream() as i32,
+      language: None,
+      forced: false,
+    },
+  )
+  .with_flags(md_flags_from_av(packet.flags()));
+  if let Some(p) = packet.pts() {
+    out = out.with_pts(Some(Timestamp::new(p, mediadecode::Timebase::default())));
+  }
+  let dur = packet.duration();
+  if dur > 0 {
+    out = out.with_duration(Some(Timestamp::new(dur, mediadecode::Timebase::default())));
+  }
+  Some(out)
+}
+
+fn md_flags_from_av(flags: ffmpeg_next::packet::Flags) -> MdPacketFlags {
+  let mut out = MdPacketFlags::empty();
+  if flags.contains(ffmpeg_next::packet::Flags::KEY) {
+    out |= MdPacketFlags::KEY;
+  }
+  if flags.contains(ffmpeg_next::packet::Flags::CORRUPT) {
+    out |= MdPacketFlags::CORRUPT;
+  }
+  out
+}
+
+// ---------------------------------------------------------------------------
+//  Empty-frame placeholders for `receive_frame` destinations.
+// ---------------------------------------------------------------------------
+
+/// Constructs an empty [`mediadecode::frame::VideoFrame`] suitable as
+/// the destination argument to
+/// [`mediadecode::decoder::VideoStreamDecoder::receive_frame`]. The
+/// decoder overwrites the frame on success; this just provides a
+/// well-formed slot.
+///
+/// All four plane slots get a 1-byte `FfmpegBuffer` placeholder
+/// (the array shape requires a buffer in every slot, but
+/// `plane_count = 0` reports them as inactive).
+pub fn empty_video_frame() -> VideoFrame<PixelFormat, VideoFrameExtra, FfmpegBuffer> {
+  let placeholder = || Plane::new(FfmpegBuffer::empty(), 0);
+  let planes = [placeholder(), placeholder(), placeholder(), placeholder()];
+  VideoFrame::new(
+    0,
+    0,
+    PixelFormat::Unknown,
+    planes,
+    0,
+    VideoFrameExtra::default(),
+  )
+}
+
+/// Constructs an empty [`mediadecode::frame::AudioFrame`] suitable as
+/// the destination argument to
+/// [`mediadecode::decoder::AudioStreamDecoder::receive_frame`]. Same
+/// behaviour as [`empty_video_frame`] — eight 1-byte plane
+/// placeholders, `plane_count = 0`.
+pub fn empty_audio_frame()
+-> AudioFrame<SampleFormat, AudioChannelLayout, AudioFrameExtra, FfmpegBuffer> {
+  let placeholder = || Plane::new(FfmpegBuffer::empty(), 0);
+  let planes = [
+    placeholder(),
+    placeholder(),
+    placeholder(),
+    placeholder(),
+    placeholder(),
+    placeholder(),
+    placeholder(),
+    placeholder(),
+  ];
+  AudioFrame::new(
+    0,
+    0,
+    0,
+    SampleFormat::NONE,
+    AudioChannelLayout::default(),
+    planes,
+    0,
+    AudioFrameExtra::default(),
+  )
+}
+
+/// Constructs an empty [`mediadecode::frame::SubtitleFrame`] suitable
+/// as the destination argument to
+/// [`mediadecode::decoder::SubtitleDecoder::receive_frame`]. The
+/// payload is an empty `Text` placeholder; the decoder overwrites
+/// it on success.
+pub fn empty_subtitle_frame() -> SubtitleFrame<SubtitleFrameExtra, FfmpegBuffer> {
+  let buf = FfmpegBuffer::copy_from_slice(&[]).unwrap_or_else(FfmpegBuffer::empty);
+  SubtitleFrame::new(
+    SubtitlePayload::Text {
+      text: buf,
+      language: None,
+    },
+    SubtitleFrameExtra::default(),
+  )
 }
 
 #[cfg(test)]

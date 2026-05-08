@@ -14,14 +14,18 @@ use ffmpeg_next::ffi::{
 };
 use mediadecode::{
   PixelFormat, Timebase, Timestamp,
+  channel::AudioChannelLayout,
   color::{ChromaLocation, ColorInfo, ColorMatrix, ColorPrimaries, ColorRange, ColorTransfer},
-  frame::{Plane, Rect, VideoFrame},
+  frame::{AudioFrame, Plane, Rect, SubtitleFrame, VideoFrame},
+  subtitle::SubtitlePayload,
 };
 
 use crate::{
   FfmpegBuffer, boundary,
-  extras::{PictureType, SideDataEntry, VideoFrameExtra},
+  channel_layout::audio_channel_layout_from_ffmpeg,
+  extras::{AudioFrameExtra, PictureType, SideDataEntry, SubtitleFrameExtra, VideoFrameExtra},
   frame::{is_supported_cpu_pix_fmt, plane_height_for},
+  sample_format::SampleFormat,
 };
 
 /// Errors from [`av_frame_to_video_frame`].
@@ -64,6 +68,44 @@ impl core::fmt::Display for ConvertError {
 }
 
 impl core::error::Error for ConvertError {}
+
+/// Safe wrapper around [`av_frame_to_video_frame`] taking a borrowed
+/// [`ffmpeg::Frame`](ffmpeg_next::Frame). Recommended entry point for
+/// most callers — equivalent to passing `frame.as_ptr()` to the
+/// unsafe variant, but the FFmpeg side keeps the frame alive for the
+/// duration of the call so the safety contract is satisfied
+/// internally.
+pub fn video_frame_from(
+  frame: &ffmpeg_next::Frame,
+  time_base: Timebase,
+) -> Result<VideoFrame<mediadecode::PixelFormat, VideoFrameExtra, FfmpegBuffer>, ConvertError> {
+  // SAFETY: `&frame` keeps the AVFrame alive for the duration of this
+  // call; the unsafe convert just reads through the pointer.
+  unsafe { av_frame_to_video_frame(frame.as_ptr(), time_base) }
+}
+
+/// Safe wrapper around [`av_frame_to_audio_frame`] taking a borrowed
+/// [`ffmpeg::frame::Audio`](ffmpeg_next::frame::Audio).
+pub fn audio_frame_from(
+  frame: &ffmpeg_next::frame::Audio,
+  time_base: Timebase,
+) -> Result<AudioFrame<SampleFormat, AudioChannelLayout, AudioFrameExtra, FfmpegBuffer>, ConvertError>
+{
+  // SAFETY: `&frame` keeps the AVFrame alive for the duration of this
+  // call.
+  unsafe { av_frame_to_audio_frame(frame.as_ptr(), time_base) }
+}
+
+/// Safe wrapper around [`av_subtitle_to_subtitle_frame`] taking a
+/// borrowed [`ffmpeg::Subtitle`](ffmpeg_next::Subtitle).
+pub fn subtitle_frame_from(
+  subtitle: &ffmpeg_next::Subtitle,
+  time_base: Timebase,
+) -> Result<SubtitleFrame<SubtitleFrameExtra, FfmpegBuffer>, ConvertError> {
+  // SAFETY: `&subtitle` keeps the AVSubtitle alive for the duration
+  // of this call.
+  unsafe { av_subtitle_to_subtitle_frame(subtitle.as_ptr(), time_base) }
+}
 
 /// Converts an FFmpeg `AVFrame` (CPU-side, post-`av_hwframe_transfer_data`
 /// or from a software decoder) into a `mediadecode::VideoFrame`
@@ -394,6 +436,305 @@ fn map_chroma_loc(raw: i32) -> ChromaLocation {
     x if x == AVChromaLocation::AVCHROMA_LOC_BOTTOM as i32 => ChromaLocation::Bottom,
     _ => ChromaLocation::Unspecified,
   }
+}
+
+/// Converts an FFmpeg audio `AVFrame` into a `mediadecode::AudioFrame`.
+///
+/// The plane payloads are zero-copy views into the source frame's
+/// `AVBufferRef` entries (the corresponding `data[i]` is always
+/// covered by exactly one of `buf[i]` per FFmpeg's contract). Channel
+/// counts above 8 (which would spill into `extended_buf`) are clamped
+/// to 8 — the rare cases where this matters can read the source
+/// `AVFrame` directly.
+///
+/// # Safety
+///
+/// `av_frame` must be a live `*const AVFrame` for the duration of this
+/// call and must describe an audio frame (`format` is an
+/// `AVSampleFormat`, `nb_samples > 0`, and `data[]` / `buf[]` populated).
+pub unsafe fn av_frame_to_audio_frame(
+  av_frame: *const AVFrame,
+  time_base: Timebase,
+) -> Result<AudioFrame<SampleFormat, AudioChannelLayout, AudioFrameExtra, FfmpegBuffer>, ConvertError>
+{
+  if av_frame.is_null() {
+    return Err(ConvertError::NullFrame);
+  }
+  // SAFETY: caller upholds liveness for the duration of the call.
+  let frame = unsafe { &*av_frame };
+
+  let sample_format = SampleFormat::from_raw(frame.format);
+  let sample_rate = frame.sample_rate.max(0) as u32;
+  let nb_samples = frame.nb_samples.max(0) as u32;
+
+  // ffmpeg_next::ChannelLayout is a #[repr(transparent)] tuple struct
+  // around AVChannelLayout. AVChannelLayout is Copy, so we can wrap a
+  // copy of the embedded layout for the boundary helper without
+  // disturbing the source frame.
+  let layout = ffmpeg_next::ChannelLayout(frame.ch_layout);
+  let channel_layout = audio_channel_layout_from_ffmpeg(&layout);
+  let channel_count_full = channel_layout.channels();
+  let channel_count = channel_count_full.min(255) as u8;
+
+  // Plane count: 1 for packed, channel_count for planar (capped at 8).
+  let is_planar = sample_format.is_planar();
+  let plane_count_full = if is_planar { channel_count as usize } else { 1 };
+  let plane_count = plane_count_full.min(8) as u8;
+
+  // Per-plane size in bytes. For audio, FFmpeg only sets `linesize[0]`;
+  // every planar plane has the same size, every packed buffer is the
+  // total size for all channels.
+  let plane_bytes = frame.linesize[0].max(0) as usize;
+
+  let mut planes_out: [Plane<FfmpegBuffer>; 8] = [
+    audio_plane_placeholder()?,
+    audio_plane_placeholder()?,
+    audio_plane_placeholder()?,
+    audio_plane_placeholder()?,
+    audio_plane_placeholder()?,
+    audio_plane_placeholder()?,
+    audio_plane_placeholder()?,
+    audio_plane_placeholder()?,
+  ];
+
+  for plane_idx in 0..plane_count as usize {
+    let data_ptr = frame.data[plane_idx];
+    if data_ptr.is_null() {
+      // Decoder produced fewer planes than the channel count claimed
+      // (rare, but possible with some codecs at EOF). Stop here.
+      break;
+    }
+    let buf = find_audio_backing_buffer(frame, data_ptr, plane_bytes)
+      .ok_or(ConvertError::BufferAcquireFailed { plane: plane_idx })?;
+    let offset =
+      // SAFETY: find_audio_backing_buffer guarantees data_ptr lies in
+      // [buf.data, buf.data + buf.size); the offset fits in usize.
+      unsafe { (data_ptr as *const u8).offset_from((*buf).data as *const u8) as usize };
+    // SAFETY: `buf` is non-null and live; offset + plane_bytes <= buf.size
+    // by find_audio_backing_buffer's bounds check.
+    let view = unsafe { FfmpegBuffer::from_ref_view(buf, offset, plane_bytes) }
+      .ok_or(ConvertError::BufferAcquireFailed { plane: plane_idx })?;
+    planes_out[plane_idx] = Plane::new(view, plane_bytes as u32);
+  }
+
+  let pts = if frame.pts != AV_NOPTS_VALUE {
+    Some(Timestamp::new(frame.pts, time_base))
+  } else {
+    None
+  };
+  let duration = if frame.duration > 0 {
+    Some(Timestamp::new(frame.duration, time_base))
+  } else {
+    None
+  };
+
+  let mut extra = AudioFrameExtra::default();
+  if frame.best_effort_timestamp != AV_NOPTS_VALUE {
+    extra.best_effort_timestamp = Some(frame.best_effort_timestamp);
+  }
+  // SAFETY: caller upholds liveness for the duration of the call;
+  // collect_side_data only reads through valid AVFrameSideData entries.
+  extra.side_data = unsafe { collect_side_data(frame) };
+
+  Ok(
+    AudioFrame::new(
+      sample_rate,
+      nb_samples,
+      channel_count,
+      sample_format,
+      channel_layout,
+      planes_out,
+      plane_count,
+      extra,
+    )
+    .with_pts(pts)
+    .with_duration(duration),
+  )
+}
+
+fn audio_plane_placeholder() -> Result<Plane<FfmpegBuffer>, ConvertError> {
+  use ffmpeg_next::ffi::av_buffer_alloc;
+  let raw = unsafe { av_buffer_alloc(1) };
+  if raw.is_null() {
+    return Err(ConvertError::BufferAcquireFailed { plane: 8 });
+  }
+  let buf =
+    unsafe { FfmpegBuffer::take(raw) }.ok_or(ConvertError::BufferAcquireFailed { plane: 8 })?;
+  Ok(Plane::new(buf, 0))
+}
+
+fn find_audio_backing_buffer(
+  frame: &AVFrame,
+  data_ptr: *const u8,
+  bytes: usize,
+) -> Option<*mut ffmpeg_next::ffi::AVBufferRef> {
+  // Audio frames pack each plane into a separate AVBufferRef in buf[].
+  // Same scan as the video path — finds whichever buffer's data range
+  // contains data_ptr.
+  for i in 0..frame.buf.len() {
+    let buf = frame.buf[i];
+    if buf.is_null() {
+      continue;
+    }
+    let buf_data = unsafe { (*buf).data as *const u8 };
+    let buf_size = unsafe { (*buf).size };
+    if buf_data.is_null() {
+      continue;
+    }
+    let start = buf_data as usize;
+    let end = start + buf_size;
+    let dp = data_ptr as usize;
+    if dp >= start && dp + bytes <= end {
+      return Some(buf);
+    }
+  }
+  None
+}
+
+/// Converts an FFmpeg `AVSubtitle` into a `mediadecode::SubtitleFrame`.
+///
+/// Strategy:
+/// - If the subtitle contains any text/ASS rects, produce a
+///   [`SubtitlePayload::Text`] whose buffer is the concatenation of
+///   their UTF-8 contents (newline-separated).
+/// - Otherwise, if the subtitle contains bitmap rects, produce a
+///   [`SubtitlePayload::Bitmap`] with one [`mediadecode::subtitle::BitmapRegion`]
+///   per rect (paletted indices and RGBA palette copied into fresh
+///   refcounted FfmpegBuffers, since `AVSubtitleRect` data is not
+///   refcounted).
+/// - An empty subtitle (no rects) becomes an empty `Text` payload.
+///
+/// `time_base` is the source stream's time base, used to label
+/// `pts` / `duration`. The duration is computed as
+/// `(end_display_time - start_display_time)` in milliseconds, then
+/// rescaled into `time_base`.
+///
+/// # Safety
+///
+/// `av_subtitle` must be a live `*const AVSubtitle` for the duration
+/// of this call; the rect array (`av_subtitle.rects`) must be valid
+/// for `av_subtitle.num_rects` entries.
+pub unsafe fn av_subtitle_to_subtitle_frame(
+  av_subtitle: *const ffmpeg_next::ffi::AVSubtitle,
+  time_base: Timebase,
+) -> Result<SubtitleFrame<SubtitleFrameExtra, FfmpegBuffer>, ConvertError> {
+  if av_subtitle.is_null() {
+    return Err(ConvertError::NullFrame);
+  }
+  // SAFETY: caller upholds liveness.
+  let sub = unsafe { &*av_subtitle };
+
+  let mut text_chunks: std::vec::Vec<u8> = std::vec::Vec::new();
+  let mut bitmap_regions: std::vec::Vec<mediadecode::subtitle::BitmapRegion<FfmpegBuffer>> =
+    std::vec::Vec::new();
+
+  let count = sub.num_rects as usize;
+  for i in 0..count {
+    if sub.rects.is_null() {
+      break;
+    }
+    // SAFETY: sub.rects points to num_rects valid entries per FFmpeg's
+    // contract.
+    let rect_ptr = unsafe { *sub.rects.add(i) };
+    if rect_ptr.is_null() {
+      continue;
+    }
+    let rect = unsafe { &*rect_ptr };
+
+    use ffmpeg_next::ffi::AVSubtitleType::*;
+    match rect.type_ {
+      SUBTITLE_TEXT if !rect.text.is_null() => {
+        // SAFETY: `rect.text` is documented as a 0-terminated UTF-8
+        // string, owned by FFmpeg for the lifetime of the AVSubtitle.
+        let bytes = unsafe { core::ffi::CStr::from_ptr(rect.text) }.to_bytes();
+        if !text_chunks.is_empty() {
+          text_chunks.push(b'\n');
+        }
+        text_chunks.extend_from_slice(bytes);
+      }
+      SUBTITLE_ASS if !rect.ass.is_null() => {
+        // SAFETY: `rect.ass` is documented as 0-terminated UTF-8.
+        let bytes = unsafe { core::ffi::CStr::from_ptr(rect.ass) }.to_bytes();
+        if !text_chunks.is_empty() {
+          text_chunks.push(b'\n');
+        }
+        text_chunks.extend_from_slice(bytes);
+      }
+      SUBTITLE_BITMAP => {
+        // Bitmap region. data[0] = paletted indices, data[1] = RGBA
+        // palette (256 entries × 4 bytes = 1024 bytes max). Both are
+        // owned by FFmpeg and not refcounted; copy into fresh buffers.
+        let w = rect.w.max(0) as u32;
+        let h = rect.h.max(0) as u32;
+        let stride = rect.linesize[0].max(0) as u32;
+        if rect.data[0].is_null() || stride == 0 || h == 0 {
+          continue;
+        }
+        let data_len = (stride as usize).saturating_mul(h as usize);
+        // SAFETY: caller-validated AVSubtitleRect — data[0] is valid
+        // for `linesize[0] * h` bytes.
+        let data_slice = unsafe { core::slice::from_raw_parts(rect.data[0], data_len) };
+        let data_buf = FfmpegBuffer::copy_from_slice(data_slice)
+          .ok_or(ConvertError::BufferAcquireFailed { plane: 0 })?;
+        // Palette: 256 RGBA entries (1024 bytes) per FFmpeg's contract;
+        // some encoders use fewer, but the buffer is always 1024 bytes
+        // wide. nb_colors tells us how many of those entries are used.
+        let palette_len = 256 * 4;
+        let palette_buf = if rect.data[1].is_null() {
+          FfmpegBuffer::copy_from_slice(&[])
+            .ok_or(ConvertError::BufferAcquireFailed { plane: 1 })?
+        } else {
+          // SAFETY: palette buffer is 256*4 bytes per FFmpeg's contract.
+          let p = unsafe { core::slice::from_raw_parts(rect.data[1], palette_len) };
+          FfmpegBuffer::copy_from_slice(p).ok_or(ConvertError::BufferAcquireFailed { plane: 1 })?
+        };
+        bitmap_regions.push(mediadecode::subtitle::BitmapRegion::new(
+          rect.x.max(0) as u32,
+          rect.y.max(0) as u32,
+          w,
+          h,
+          stride,
+          data_buf,
+          palette_buf,
+        ));
+      }
+      _ => {}
+    }
+  }
+
+  let payload = if !text_chunks.is_empty() {
+    let buf = FfmpegBuffer::copy_from_slice(&text_chunks)
+      .ok_or(ConvertError::BufferAcquireFailed { plane: 0 })?;
+    SubtitlePayload::Text {
+      text: buf,
+      language: None,
+    }
+  } else if !bitmap_regions.is_empty() {
+    SubtitlePayload::Bitmap {
+      regions: bitmap_regions,
+    }
+  } else {
+    // No rects (or only `None`-typed) — empty text payload.
+    let buf =
+      FfmpegBuffer::copy_from_slice(&[]).ok_or(ConvertError::BufferAcquireFailed { plane: 0 })?;
+    SubtitlePayload::Text {
+      text: buf,
+      language: None,
+    }
+  };
+
+  let pts = if sub.pts != AV_NOPTS_VALUE {
+    Some(Timestamp::new(sub.pts, time_base))
+  } else {
+    None
+  };
+
+  let extra = SubtitleFrameExtra {
+    start_display_time: sub.start_display_time,
+    end_display_time: sub.end_display_time,
+  };
+
+  Ok(SubtitleFrame::new(payload, extra).with_pts(pts))
 }
 
 fn map_picture_type(raw: AVPictureType) -> PictureType {
