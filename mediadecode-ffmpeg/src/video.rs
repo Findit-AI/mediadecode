@@ -21,11 +21,8 @@
 //! the same `mediadecode::VideoFrame<PixelFormat, VideoFrameExtra,
 //! FfmpegBuffer>` shape regardless of which backend produced it.
 
-use ffmpeg_next::codec::Parameters;
-use ffmpeg_next::frame;
-use mediadecode::{
-  Timebase, decoder::VideoStreamDecoder, frame::VideoFrame, packet::VideoPacket,
-};
+use ffmpeg_next::{codec::Parameters, frame};
+use mediadecode::{Timebase, decoder::VideoStreamDecoder, frame::VideoFrame, packet::VideoPacket};
 
 use crate::{
   Error, Ffmpeg, FfmpegBuffer, Frame, VideoDecoder, boundary, convert,
@@ -192,11 +189,7 @@ impl VideoStreamDecoder for FfmpegVideoStreamDecoder {
 
   fn receive_frame(
     &mut self,
-    dst: &mut VideoFrame<
-      mediadecode::PixelFormat,
-      VideoFrameExtra,
-      Self::Buffer,
-    >,
+    dst: &mut VideoFrame<mediadecode::PixelFormat, VideoFrameExtra, Self::Buffer>,
   ) -> Result<(), Self::Error> {
     loop {
       match &mut self.state {

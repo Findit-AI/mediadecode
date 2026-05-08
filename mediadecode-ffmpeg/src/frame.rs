@@ -422,28 +422,22 @@ fn plane_row_bytes_for(pix_fmt: PixelFormat, plane: usize, frame_width: usize) -
       _ => None,
     },
     // --- SW planar YUV 4:2:0 10/12/16-bit (low-packed in u16) ---
-    PixelFormat::Yuv420p10Le | PixelFormat::Yuv420p12Le | PixelFormat::Yuv420p16Le => {
-      match plane {
-        0 => Some(frame_width.checked_mul(2)?),
-        1 | 2 => Some(frame_width.div_ceil(2).checked_mul(2)?),
-        _ => None,
-      }
-    }
+    PixelFormat::Yuv420p10Le | PixelFormat::Yuv420p12Le | PixelFormat::Yuv420p16Le => match plane {
+      0 => Some(frame_width.checked_mul(2)?),
+      1 | 2 => Some(frame_width.div_ceil(2).checked_mul(2)?),
+      _ => None,
+    },
     // --- SW planar YUV 4:2:2 10/12/16-bit ---
-    PixelFormat::Yuv422p10Le | PixelFormat::Yuv422p12Le | PixelFormat::Yuv422p16Le => {
-      match plane {
-        0 => Some(frame_width.checked_mul(2)?),
-        1 | 2 => Some(frame_width.div_ceil(2).checked_mul(2)?),
-        _ => None,
-      }
-    }
+    PixelFormat::Yuv422p10Le | PixelFormat::Yuv422p12Le | PixelFormat::Yuv422p16Le => match plane {
+      0 => Some(frame_width.checked_mul(2)?),
+      1 | 2 => Some(frame_width.div_ceil(2).checked_mul(2)?),
+      _ => None,
+    },
     // --- SW planar YUV 4:4:4 10/12/16-bit ---
-    PixelFormat::Yuv444p10Le | PixelFormat::Yuv444p12Le | PixelFormat::Yuv444p16Le => {
-      match plane {
-        0 | 1 | 2 => Some(frame_width.checked_mul(2)?),
-        _ => None,
-      }
-    }
+    PixelFormat::Yuv444p10Le | PixelFormat::Yuv444p12Le | PixelFormat::Yuv444p16Le => match plane {
+      0 | 1 | 2 => Some(frame_width.checked_mul(2)?),
+      _ => None,
+    },
     // --- SW packed RGB 8-bit (3 bytes/pixel for RGB24/BGR24,
     //     4 bytes/pixel for RGBA/BGRA/ARGB/ABGR). Single plane. ---
     PixelFormat::Rgb24 | PixelFormat::Bgr24 => match plane {
@@ -910,6 +904,8 @@ mod tests {
     // A future / unknown format value FFmpeg might invent — the helper
     // is closed-set so unknown integers are always rejected without
     // constructing the bindgen enum.
-    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(99_999_999)));
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
+      99_999_999
+    )));
   }
 }

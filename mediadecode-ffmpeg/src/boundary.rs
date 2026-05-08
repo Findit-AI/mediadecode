@@ -6,12 +6,10 @@
 //! the bindgen enum (UB hazard when the value isn't in the enum's
 //! discriminant set).
 
-use ffmpeg_next::Packet;
-use ffmpeg_next::ffi::AVPixelFormat;
+use ffmpeg_next::{Packet, ffi::AVPixelFormat};
 use mediadecode::{PixelFormat, packet::PacketFlags as MdPacketFlags};
 
-use crate::FfmpegBuffer;
-use crate::extras::VideoPacketExtra;
+use crate::{FfmpegBuffer, extras::VideoPacketExtra};
 
 /// Maps a raw `AVFrame.format` integer (i.e. the value of an
 /// `AVPixelFormat` enum variant) onto [`mediadecode::PixelFormat`].
@@ -197,7 +195,9 @@ mod tests {
 
   #[test]
   fn hw_formats_detected() {
-    assert!(is_hardware_pix_fmt(AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX as i32));
+    assert!(is_hardware_pix_fmt(
+      AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX as i32
+    ));
     assert!(is_hardware_pix_fmt(AVPixelFormat::AV_PIX_FMT_VAAPI as i32));
     assert!(is_hardware_pix_fmt(AVPixelFormat::AV_PIX_FMT_CUDA as i32));
     assert!(is_hardware_pix_fmt(AVPixelFormat::AV_PIX_FMT_D3D11 as i32));
@@ -206,7 +206,9 @@ mod tests {
   #[test]
   fn cpu_formats_not_detected_as_hw() {
     assert!(!is_hardware_pix_fmt(AVPixelFormat::AV_PIX_FMT_NV12 as i32));
-    assert!(!is_hardware_pix_fmt(AVPixelFormat::AV_PIX_FMT_YUV420P as i32));
+    assert!(!is_hardware_pix_fmt(
+      AVPixelFormat::AV_PIX_FMT_YUV420P as i32
+    ));
     assert!(!is_hardware_pix_fmt(AVPixelFormat::AV_PIX_FMT_NONE as i32));
   }
 

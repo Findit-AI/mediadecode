@@ -26,6 +26,10 @@ criterion = { workspace = true }
 name = "decode"
 path = "examples/decode.rs"
 
+[[example]]
+name = "decode_via_trait"
+path = "examples/decode_via_trait.rs"
+
 [[bench]]
 name = "decode"
 path = "benches/decode.rs"
