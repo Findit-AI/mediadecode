@@ -152,6 +152,152 @@ pub enum ChromaLocation {
     Bottom,
 }
 
+/// Bundled color metadata that rides on every [`crate::frame::VideoFrame`].
+///
+/// Every backend except R3D and BRAW exposes color metadata natively;
+/// RAW backends populate from clip-level color science and leave
+/// `Unspecified` if absent. `ColorInfo::UNSPECIFIED` is the sensible
+/// default for RAW backends that don't carry per-frame color data.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ColorInfo {
+    primaries:       ColorPrimaries,
+    transfer:        ColorTransfer,
+    matrix:          ColorMatrix,
+    range:           ColorRange,
+    chroma_location: ChromaLocation,
+}
+
+impl ColorInfo {
+    /// All-`Unspecified` color info (for `Default` / RAW-backend use).
+    /// Matrix defaults to `Bt709` (matches FFmpeg's height-≥-720
+    /// fallback for `AVCOL_SPC_UNSPECIFIED`).
+    pub const UNSPECIFIED: Self = Self {
+        primaries:       ColorPrimaries::Unspecified,
+        transfer:        ColorTransfer::Unspecified,
+        matrix:          ColorMatrix::Bt709,
+        range:           ColorRange::Unspecified,
+        chroma_location: ChromaLocation::Unspecified,
+    };
+
+    /// Constructs a `ColorInfo` from explicit components.
+    #[inline]
+    pub const fn new(
+        primaries: ColorPrimaries,
+        transfer: ColorTransfer,
+        matrix: ColorMatrix,
+        range: ColorRange,
+        chroma_location: ChromaLocation,
+    ) -> Self {
+        Self {
+            primaries,
+            transfer,
+            matrix,
+            range,
+            chroma_location,
+        }
+    }
+
+    /// Returns the color primaries.
+    #[inline]
+    pub const fn primaries(&self) -> ColorPrimaries {
+        self.primaries
+    }
+
+    /// Returns the transfer characteristics.
+    #[inline]
+    pub const fn transfer(&self) -> ColorTransfer {
+        self.transfer
+    }
+
+    /// Returns the YUV→RGB matrix coefficients.
+    #[inline]
+    pub const fn matrix(&self) -> ColorMatrix {
+        self.matrix
+    }
+
+    /// Returns the sample range (limited / full).
+    #[inline]
+    pub const fn range(&self) -> ColorRange {
+        self.range
+    }
+
+    /// Returns the chroma sample location.
+    #[inline]
+    pub const fn chroma_location(&self) -> ChromaLocation {
+        self.chroma_location
+    }
+
+    /// Sets the primaries (consuming builder).
+    #[inline]
+    pub const fn with_primaries(mut self, v: ColorPrimaries) -> Self {
+        self.primaries = v;
+        self
+    }
+
+    /// Sets the transfer (consuming builder).
+    #[inline]
+    pub const fn with_transfer(mut self, v: ColorTransfer) -> Self {
+        self.transfer = v;
+        self
+    }
+
+    /// Sets the matrix (consuming builder).
+    #[inline]
+    pub const fn with_matrix(mut self, v: ColorMatrix) -> Self {
+        self.matrix = v;
+        self
+    }
+
+    /// Sets the range (consuming builder).
+    #[inline]
+    pub const fn with_range(mut self, v: ColorRange) -> Self {
+        self.range = v;
+        self
+    }
+
+    /// Sets the chroma location (consuming builder).
+    #[inline]
+    pub const fn with_chroma_location(mut self, v: ChromaLocation) -> Self {
+        self.chroma_location = v;
+        self
+    }
+
+    /// Sets the primaries in place.
+    #[inline]
+    pub const fn set_primaries(&mut self, v: ColorPrimaries) -> &mut Self {
+        self.primaries = v;
+        self
+    }
+
+    /// Sets the transfer in place.
+    #[inline]
+    pub const fn set_transfer(&mut self, v: ColorTransfer) -> &mut Self {
+        self.transfer = v;
+        self
+    }
+
+    /// Sets the matrix in place.
+    #[inline]
+    pub const fn set_matrix(&mut self, v: ColorMatrix) -> &mut Self {
+        self.matrix = v;
+        self
+    }
+
+    /// Sets the range in place.
+    #[inline]
+    pub const fn set_range(&mut self, v: ColorRange) -> &mut Self {
+        self.range = v;
+        self
+    }
+
+    /// Sets the chroma location in place.
+    #[inline]
+    pub const fn set_chroma_location(&mut self, v: ChromaLocation) -> &mut Self {
+        self.chroma_location = v;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,5 +325,52 @@ mod tests {
         let m1 = ColorMatrix::Bt709;
         let m2 = m1; // Copy
         assert_eq!(m1, m2);
+    }
+
+    #[test]
+    fn color_info_default_is_unspecified_with_bt709_matrix() {
+        let ci = ColorInfo::default();
+        assert_eq!(ci, ColorInfo::UNSPECIFIED);
+        assert!(ci.primaries().is_unspecified());
+        assert!(ci.matrix().is_bt_709());
+    }
+
+    #[test]
+    fn color_info_builders_chain() {
+        let ci = ColorInfo::UNSPECIFIED
+            .with_primaries(ColorPrimaries::Bt2020)
+            .with_transfer(ColorTransfer::SmpteSt2084Pq)
+            .with_matrix(ColorMatrix::Bt2020Ncl)
+            .with_range(ColorRange::Limited)
+            .with_chroma_location(ChromaLocation::Left);
+        assert!(ci.primaries().is_bt_2020());
+        assert!(ci.transfer().is_smpte_st_2084_pq());
+        assert!(ci.matrix().is_bt_2020_ncl());
+        assert!(ci.range().is_limited());
+        assert!(ci.chroma_location().is_left());
+    }
+
+    #[test]
+    fn color_info_setters_chain() {
+        let mut ci = ColorInfo::UNSPECIFIED;
+        ci.set_primaries(ColorPrimaries::Bt709)
+          .set_transfer(ColorTransfer::Bt709)
+          .set_matrix(ColorMatrix::Bt709)
+          .set_range(ColorRange::Limited)
+          .set_chroma_location(ChromaLocation::Left);
+        assert!(ci.primaries().is_bt_709());
+        assert!(ci.range().is_limited());
+    }
+
+    #[test]
+    fn color_info_const_construction() {
+        const CI: ColorInfo = ColorInfo::new(
+            ColorPrimaries::Bt709,
+            ColorTransfer::Bt709,
+            ColorMatrix::Bt709,
+            ColorRange::Limited,
+            ChromaLocation::Left,
+        );
+        assert!(CI.matrix().is_bt_709());
     }
 }
