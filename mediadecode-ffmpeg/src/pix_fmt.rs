@@ -160,6 +160,69 @@ impl PixelFormat {
   pub const GRAY8: Self = Self(AVPixelFormat::AV_PIX_FMT_GRAY8 as i32);
   /// 16-bit greyscale, little-endian.
   pub const GRAY16LE: Self = Self(AVPixelFormat::AV_PIX_FMT_GRAY16LE as i32);
+
+  /// Maps this FFmpeg pixel format integer to the unified
+  /// [`mediadecode::PixelFormat`] enum. Returns
+  /// [`mediadecode::PixelFormat::Unknown`] for raw integers outside
+  /// the closed set this newtype names.
+  ///
+  /// This is the boundary conversion used when handing decoded frames
+  /// out of the FFmpeg adapter — the unified enum is what consumers
+  /// (colconv, scenesdetect, application code) match on.
+  pub const fn into_mediadecode(self) -> mediadecode::PixelFormat {
+    use mediadecode::PixelFormat as M;
+    match self {
+      // Semi-planar YUV 8-bit.
+      Self::NV12 => M::Nv12,
+      Self::NV21 => M::Nv21,
+      Self::NV16 => M::Nv16,
+      Self::NV24 => M::Nv24,
+      // Semi-planar YUV high-bit-depth.
+      Self::P010LE => M::P010Le,
+      Self::P010BE => M::P010Le, // Map BE -> LE since the enum is LE-canonical.
+      Self::P012LE => M::P012Le,
+      Self::P016LE => M::P016Le,
+      Self::P210LE => M::P210Le,
+      Self::P212LE => M::P212Le,
+      Self::P216LE => M::P216Le,
+      Self::P410LE => M::P410Le,
+      Self::P412LE => M::P412Le,
+      Self::P416LE => M::P416Le,
+      // Planar YUV 8-bit.
+      Self::YUV420P => M::Yuv420p,
+      Self::YUV422P => M::Yuv422p,
+      Self::YUV444P => M::Yuv444p,
+      // Planar YUV high-bit-depth.
+      Self::YUV420P10LE => M::Yuv420p10Le,
+      Self::YUV420P12LE => M::Yuv420p12Le,
+      Self::YUV420P16LE => M::Yuv420p16Le,
+      Self::YUV422P10LE => M::Yuv422p10Le,
+      Self::YUV422P12LE => M::Yuv422p12Le,
+      Self::YUV422P16LE => M::Yuv422p16Le,
+      Self::YUV444P10LE => M::Yuv444p10Le,
+      Self::YUV444P12LE => M::Yuv444p12Le,
+      Self::YUV444P16LE => M::Yuv444p16Le,
+      // Planar YUVA.
+      Self::YUVA420P => M::Yuva420p,
+      Self::YUVA422P => M::Yuva422p,
+      Self::YUVA444P => M::Yuva444p,
+      // Packed RGB 8-bit.
+      Self::RGB24 => M::Rgb24,
+      Self::BGR24 => M::Bgr24,
+      Self::RGBA => M::Rgba,
+      Self::BGRA => M::Bgra,
+      Self::ARGB => M::Argb,
+      Self::ABGR => M::Abgr,
+      // Packed RGB high-bit.
+      Self::RGB48LE => M::Rgb48Le,
+      Self::RGBA64LE => M::Rgba64Le,
+      // Greyscale.
+      Self::GRAY8 => M::Gray8,
+      Self::GRAY16LE => M::Gray16Le,
+      // Sentinel and everything else.
+      _ => M::Unknown,
+    }
+  }
 }
 
 impl fmt::Debug for PixelFormat {

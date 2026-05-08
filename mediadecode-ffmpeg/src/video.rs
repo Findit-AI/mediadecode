@@ -87,7 +87,7 @@ impl VideoStreamDecoder for FfmpegVideoStreamDecoder {
   fn receive_frame(
     &mut self,
     dst: &mut VideoFrame<
-      crate::pix_fmt::PixelFormat,
+      mediadecode::PixelFormat,
       crate::extras::VideoFrameExtra,
       Self::Buffer,
     >,

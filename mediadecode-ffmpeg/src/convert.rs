@@ -81,7 +81,7 @@ impl core::error::Error for ConvertError {}
 pub unsafe fn av_frame_to_video_frame(
   av_frame: *const AVFrame,
   time_base: Timebase,
-) -> Result<VideoFrame<PixelFormat, VideoFrameExtra, FfmpegBuffer>, ConvertError> {
+) -> Result<VideoFrame<mediadecode::PixelFormat, VideoFrameExtra, FfmpegBuffer>, ConvertError> {
   if av_frame.is_null() {
     return Err(ConvertError::NullFrame);
   }
@@ -174,10 +174,17 @@ pub unsafe fn av_frame_to_video_frame(
   // Backend-specific extras.
   let extra = build_video_frame_extra(frame);
 
-  let mut out = VideoFrame::new(width, height, pix_fmt, planes_out, plane_count, extra)
-    .with_pts(pts)
-    .with_duration(duration)
-    .with_color(color);
+  // Map the internal i32-newtype to the unified mediadecode enum at
+  // the boundary. Internal helpers (is_supported_cpu_pix_fmt,
+  // plane_height_for, plane_row_bytes_for) keep using the i32 newtype
+  // for their HW-format-specific dispatch tables.
+  let unified_pix_fmt = pix_fmt.into_mediadecode();
+
+  let mut out =
+    VideoFrame::new(width, height, unified_pix_fmt, planes_out, plane_count, extra)
+      .with_pts(pts)
+      .with_duration(duration)
+      .with_color(color);
   if let Some(r) = visible_rect {
     out = out.with_visible_rect(Some(r));
   }

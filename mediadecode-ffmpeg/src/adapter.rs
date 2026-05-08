@@ -7,6 +7,7 @@
 //! Decoder) reads cleanly: `VideoPacket<Ffmpeg, FfmpegBuffer>` etc.
 
 use mediadecode::{
+  PixelFormat,
   adapter::{AudioAdapter, SubtitleAdapter, VideoAdapter},
   channel::AudioChannelLayout,
 };
@@ -17,7 +18,6 @@ use crate::{
     AudioFrameExtra, AudioPacketExtra, SubtitleFrameExtra, SubtitlePacketExtra, VideoFrameExtra,
     VideoPacketExtra,
   },
-  pix_fmt::PixelFormat,
   sample_format::SampleFormat,
 };
 
