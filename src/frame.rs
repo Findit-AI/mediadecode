@@ -351,6 +351,55 @@ impl<A: AudioAdapter, B: AsRef<[u8]>> AudioFrame<A, B> {
     pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self { self.duration = v; self }
 }
 
+use crate::adapter::SubtitleAdapter;
+use crate::subtitle::SubtitlePayload;
+
+/// A decoded subtitle frame.
+pub struct SubtitleFrame<A: SubtitleAdapter, B: AsRef<[u8]>> {
+    pts:      Option<Timestamp>,
+    duration: Option<Timestamp>,
+    payload:  SubtitlePayload<B>,
+    extra:    A::FrameExtra,
+}
+
+impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitleFrame<A, B> {
+    /// Constructs a `SubtitleFrame`.
+    #[inline]
+    pub fn new(payload: SubtitlePayload<B>, extra: A::FrameExtra) -> Self {
+        Self { pts: None, duration: None, payload, extra }
+    }
+
+    /// Returns the PTS.
+    #[inline]
+    pub const fn pts(&self) -> Option<Timestamp> { self.pts }
+    /// Returns the duration.
+    #[inline]
+    pub const fn duration(&self) -> Option<Timestamp> { self.duration }
+    /// Returns the payload.
+    #[inline]
+    pub const fn payload(&self) -> &SubtitlePayload<B> { &self.payload }
+    /// Returns the backend extras.
+    #[inline]
+    pub const fn extra(&self) -> &A::FrameExtra { &self.extra }
+    /// Returns a mutable reference to the backend extras.
+    #[inline]
+    pub fn extra_mut(&mut self) -> &mut A::FrameExtra { &mut self.extra }
+
+    /// Sets the PTS (consuming builder).
+    #[inline]
+    pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self { self.pts = v; self }
+    /// Sets the duration (consuming builder).
+    #[inline]
+    pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self { self.duration = v; self }
+
+    /// Sets the PTS in place.
+    #[inline]
+    pub const fn set_pts(&mut self, v: Option<Timestamp>) -> &mut Self { self.pts = v; self }
+    /// Sets the duration in place.
+    #[inline]
+    pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self { self.duration = v; self }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,5 +553,29 @@ mod tests {
         assert_eq!(f.channel_count(), 2);
         assert_eq!(f.plane_count(), 2);
         assert_eq!(f.planes().len(), 2);
+    }
+
+    use crate::adapter::SubtitleAdapter;
+    use crate::subtitle::SubtitlePayload;
+
+    struct SLoop;
+    impl SubtitleAdapter for SLoop {
+        type CodecId = u32;
+        type PacketExtra = ();
+        type FrameExtra = ();
+    }
+
+    #[test]
+    fn subtitle_frame_text_payload() {
+        let payload: SubtitlePayload<&[u8]> = SubtitlePayload::Text {
+            text: b"hi",
+            language: None,
+        };
+        let f: SubtitleFrame<SLoop, &[u8]> = SubtitleFrame::new(payload, ());
+        match f.payload() {
+            SubtitlePayload::Text { text, .. } => assert_eq!(text, &&b"hi"[..]),
+            #[cfg(feature = "alloc")]
+            _ => panic!("unexpected variant"),
+        }
     }
 }
