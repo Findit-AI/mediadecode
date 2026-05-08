@@ -20,131 +20,158 @@ use core::fmt::Debug;
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 #[derive(Debug, Clone)]
 pub struct BitmapRegion<B: AsRef<[u8]>> {
-    x:        u32,
-    y:        u32,
-    width:    u32,
-    height:   u32,
-    /// Bytes per row of `data`.
-    stride:   u32,
-    /// Paletted pixel data; one byte per pixel, indices into `palette`.
-    data:     B,
-    /// RGBA palette (4 bytes per entry).
-    palette:  B,
+  x: u32,
+  y: u32,
+  width: u32,
+  height: u32,
+  /// Bytes per row of `data`.
+  stride: u32,
+  /// Paletted pixel data; one byte per pixel, indices into `palette`.
+  data: B,
+  /// RGBA palette (4 bytes per entry).
+  palette: B,
 }
 
 #[cfg(feature = "alloc")]
 impl<B: AsRef<[u8]>> BitmapRegion<B> {
-    /// Constructs a `BitmapRegion`.
-    #[inline]
-    pub const fn new(
-        x: u32, y: u32, width: u32, height: u32, stride: u32,
-        data: B, palette: B,
-    ) -> Self {
-        Self { x, y, width, height, stride, data, palette }
+  /// Constructs a `BitmapRegion`.
+  #[inline]
+  pub const fn new(
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    data: B,
+    palette: B,
+  ) -> Self {
+    Self {
+      x,
+      y,
+      width,
+      height,
+      stride,
+      data,
+      palette,
     }
+  }
 
-    /// Returns the X coordinate of the region's top-left.
-    #[inline]
-    pub const fn x(&self) -> u32 { self.x }
-    /// Returns the Y coordinate of the region's top-left.
-    #[inline]
-    pub const fn y(&self) -> u32 { self.y }
-    /// Returns the region's width.
-    #[inline]
-    pub const fn width(&self) -> u32 { self.width }
-    /// Returns the region's height.
-    #[inline]
-    pub const fn height(&self) -> u32 { self.height }
-    /// Returns the stride in bytes.
-    #[inline]
-    pub const fn stride(&self) -> u32 { self.stride }
-    /// Returns the paletted pixel data.
-    #[inline]
-    pub const fn data(&self) -> &B { &self.data }
-    /// Returns the RGBA palette.
-    #[inline]
-    pub const fn palette(&self) -> &B { &self.palette }
+  /// Returns the X coordinate of the region's top-left.
+  #[inline]
+  pub const fn x(&self) -> u32 {
+    self.x
+  }
+  /// Returns the Y coordinate of the region's top-left.
+  #[inline]
+  pub const fn y(&self) -> u32 {
+    self.y
+  }
+  /// Returns the region's width.
+  #[inline]
+  pub const fn width(&self) -> u32 {
+    self.width
+  }
+  /// Returns the region's height.
+  #[inline]
+  pub const fn height(&self) -> u32 {
+    self.height
+  }
+  /// Returns the stride in bytes.
+  #[inline]
+  pub const fn stride(&self) -> u32 {
+    self.stride
+  }
+  /// Returns the paletted pixel data.
+  #[inline]
+  pub const fn data(&self) -> &B {
+    &self.data
+  }
+  /// Returns the RGBA palette.
+  #[inline]
+  pub const fn palette(&self) -> &B {
+    &self.palette
+  }
 }
 
 /// Decoded subtitle payload — text or bitmap regions.
 pub enum SubtitlePayload<B: AsRef<[u8]>> {
-    /// Text subtitle (UTF-8 in `text`; ISO 639-2 language tag optional).
-    Text {
-        /// UTF-8 text payload.
-        text:     B,
-        /// ISO 639-2/T language tag, or `None` if unspecified.
-        language: Option<[u8; 3]>,
-    },
-    /// Bitmap subtitle — one or more rectangles of paletted pixels.
-    /// Available only with the `alloc` feature.
-    #[cfg(feature = "alloc")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-    Bitmap {
-        /// One or more rectangles. FFmpeg subtitles often carry several.
-        regions: alloc::vec::Vec<BitmapRegion<B>>,
-    },
+  /// Text subtitle (UTF-8 in `text`; ISO 639-2 language tag optional).
+  Text {
+    /// UTF-8 text payload.
+    text: B,
+    /// ISO 639-2/T language tag, or `None` if unspecified.
+    language: Option<[u8; 3]>,
+  },
+  /// Bitmap subtitle — one or more rectangles of paletted pixels.
+  /// Available only with the `alloc` feature.
+  #[cfg(feature = "alloc")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+  Bitmap {
+    /// One or more rectangles. FFmpeg subtitles often carry several.
+    regions: alloc::vec::Vec<BitmapRegion<B>>,
+  },
 }
 
 impl<B: AsRef<[u8]> + Debug> Debug for SubtitlePayload<B> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Text { text, language } => f
-                .debug_struct("SubtitlePayload::Text")
-                .field("text", text)
-                .field("language", language)
-                .finish(),
-            #[cfg(feature = "alloc")]
-            Self::Bitmap { regions } => f
-                .debug_struct("SubtitlePayload::Bitmap")
-                .field("regions", &regions.len())
-                .finish(),
-        }
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    match self {
+      Self::Text { text, language } => f
+        .debug_struct("SubtitlePayload::Text")
+        .field("text", text)
+        .field("language", language)
+        .finish(),
+      #[cfg(feature = "alloc")]
+      Self::Bitmap { regions } => f
+        .debug_struct("SubtitlePayload::Bitmap")
+        .field("regions", &regions.len())
+        .finish(),
     }
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn text_payload_constructs() {
-        let p: SubtitlePayload<&[u8]> = SubtitlePayload::Text {
-            text: b"hello",
-            language: Some(*b"eng"),
-        };
-        match p {
-            SubtitlePayload::Text { text, language } => {
-                assert_eq!(text, b"hello");
-                assert_eq!(language, Some(*b"eng"));
-            }
-            #[cfg(feature = "alloc")]
-            _ => panic!("unexpected variant"),
-        }
+  #[test]
+  fn text_payload_constructs() {
+    let p: SubtitlePayload<&[u8]> = SubtitlePayload::Text {
+      text: b"hello",
+      language: Some(*b"eng"),
+    };
+    match p {
+      SubtitlePayload::Text { text, language } => {
+        assert_eq!(text, b"hello");
+        assert_eq!(language, Some(*b"eng"));
+      }
+      #[cfg(feature = "alloc")]
+      _ => panic!("unexpected variant"),
     }
+  }
 
-    #[cfg(feature = "alloc")]
-    #[test]
-    fn bitmap_region_construction() {
-        let data: &[u8] = &[0; 16];
-        let pal:  &[u8] = &[0; 16];
-        let r = BitmapRegion::new(10, 20, 4, 4, 4, data, pal);
-        assert_eq!(r.x(), 10);
-        assert_eq!(r.width(), 4);
-        assert_eq!(*r.data(), data);
-    }
+  #[cfg(feature = "alloc")]
+  #[test]
+  fn bitmap_region_construction() {
+    let data: &[u8] = &[0; 16];
+    let pal: &[u8] = &[0; 16];
+    let r = BitmapRegion::new(10, 20, 4, 4, 4, data, pal);
+    assert_eq!(r.x(), 10);
+    assert_eq!(r.width(), 4);
+    assert_eq!(*r.data(), data);
+  }
 
-    #[cfg(feature = "alloc")]
-    #[test]
-    fn bitmap_payload_constructs() {
-        let data: &[u8] = &[0; 16];
-        let pal:  &[u8] = &[0; 16];
-        let p: SubtitlePayload<&[u8]> = SubtitlePayload::Bitmap {
-            regions: alloc::vec![BitmapRegion::new(0, 0, 4, 4, 4, data, pal)],
-        };
-        if let SubtitlePayload::Bitmap { regions } = p {
-            assert_eq!(regions.len(), 1);
-        } else {
-            panic!("unexpected variant");
-        }
+  #[cfg(feature = "alloc")]
+  #[test]
+  fn bitmap_payload_constructs() {
+    let data: &[u8] = &[0; 16];
+    let pal: &[u8] = &[0; 16];
+    let p: SubtitlePayload<&[u8]> = SubtitlePayload::Bitmap {
+      regions: alloc::vec![BitmapRegion::new(0, 0, 4, 4, 4, data, pal)],
+    };
+    if let SubtitlePayload::Bitmap { regions } = p {
+      assert_eq!(regions.len(), 1);
+    } else {
+      panic!("unexpected variant");
     }
+  }
 }

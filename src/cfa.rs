@@ -24,41 +24,43 @@ use derive_more::IsVariant;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IsVariant)]
 #[non_exhaustive]
 pub enum BayerPattern {
-    /// `B G / G R` — top-left is **B**, bottom-right is **R**.
-    Bggr,
-    /// `R G / G B` — top-left is **R**, bottom-right is **B**.
-    Rggb,
-    /// `G R / B G` — top-left is **G** (on the red row), top-right is **R**.
-    Grbg,
-    /// `G B / R G` — top-left is **G** (on the blue row), top-right is **B**.
-    Gbrg,
+  /// `B G / G R` — top-left is **B**, bottom-right is **R**.
+  Bggr,
+  /// `R G / G B` — top-left is **R**, bottom-right is **B**.
+  Rggb,
+  /// `G R / B G` — top-left is **G** (on the red row), top-right is **R**.
+  Grbg,
+  /// `G B / R G` — top-left is **G** (on the blue row), top-right is **B**.
+  Gbrg,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn variants_construct_and_compare() {
-        assert_eq!(BayerPattern::Bggr, BayerPattern::Bggr);
-        assert_ne!(BayerPattern::Bggr, BayerPattern::Rggb);
-    }
+  #[test]
+  fn variants_construct_and_compare() {
+    assert_eq!(BayerPattern::Bggr, BayerPattern::Bggr);
+    assert_ne!(BayerPattern::Bggr, BayerPattern::Rggb);
+  }
 
-    #[test]
-    fn is_variant_helpers_work() {
-        assert!(BayerPattern::Bggr.is_bggr());
-        assert!(!BayerPattern::Bggr.is_rggb());
-    }
+  #[test]
+  fn is_variant_helpers_work() {
+    assert!(BayerPattern::Bggr.is_bggr());
+    assert!(!BayerPattern::Bggr.is_rggb());
+  }
 
-    #[cfg(feature = "std")]
-    #[test]
-    fn copy_and_hash() {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let p = BayerPattern::Grbg;
-        let _copy = p; // doesn't move
-        let mut h = DefaultHasher::new();
-        p.hash(&mut h);
-        let _ = h.finish();
-    }
+  #[cfg(feature = "std")]
+  #[test]
+  fn copy_and_hash() {
+    use std::{
+      collections::hash_map::DefaultHasher,
+      hash::{Hash, Hasher},
+    };
+    let p = BayerPattern::Grbg;
+    let _copy = p; // doesn't move
+    let mut h = DefaultHasher::new();
+    p.hash(&mut h);
+    let _ = h.finish();
+  }
 }
