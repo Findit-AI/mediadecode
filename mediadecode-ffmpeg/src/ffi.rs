@@ -12,8 +12,8 @@
 use std::ptr;
 
 use ffmpeg_next::ffi::{
-  avcodec_get_hw_config, AVCodec, AVCodecContext, AVHWDeviceType, AVPixelFormat,
-  AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
+  AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX, AVCodec, AVCodecContext, AVHWDeviceType, AVPixelFormat,
+  avcodec_get_hw_config,
 };
 
 /// State pointed to by `AVCodecContext::opaque` so [`get_hw_format`] can pick
@@ -247,7 +247,7 @@ mod tests {
   #[cfg(target_os = "macos")]
   #[test]
   fn codec_supports_hwaccel_requires_matching_pix_fmt() {
-    use ffmpeg_next::ffi::{avcodec_find_decoder, AVCodecID, AVHWDeviceType, AVPixelFormat};
+    use ffmpeg_next::ffi::{AVCodecID, AVHWDeviceType, AVPixelFormat, avcodec_find_decoder};
 
     // SAFETY: AV_CODEC_ID_H264 is a known constant in our build's
     // `AVCodecID` discriminant set; constructing it does not invoke the

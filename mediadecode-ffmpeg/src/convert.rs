@@ -9,8 +9,8 @@
 //! bumps refcounts; dropping releases them.
 
 use ffmpeg_next::ffi::{
-  AVChromaLocation, AVColorPrimaries, AVColorRange, AVColorSpace, AVColorTransferCharacteristic,
-  AVFrame, AVPictureType, AV_NOPTS_VALUE,
+  AV_NOPTS_VALUE, AVChromaLocation, AVColorPrimaries, AVColorRange, AVColorSpace,
+  AVColorTransferCharacteristic, AVFrame, AVPictureType,
 };
 use mediadecode::{
   Timebase, Timestamp,
@@ -201,8 +201,8 @@ fn plane_placeholder() -> Result<Plane<FfmpegBuffer>, ConvertError> {
     // Truly OOM. Return an error by way of a poisoned plane.
     return Err(ConvertError::BufferAcquireFailed { plane: 4 });
   }
-  let buf = unsafe { FfmpegBuffer::take(raw) }
-    .ok_or(ConvertError::BufferAcquireFailed { plane: 4 })?;
+  let buf =
+    unsafe { FfmpegBuffer::take(raw) }.ok_or(ConvertError::BufferAcquireFailed { plane: 4 })?;
   Ok(Plane::new(buf, 0))
 }
 
@@ -235,10 +235,8 @@ fn build_video_frame_extra(frame: &AVFrame) -> VideoFrameExtra {
   // for these in recent FFmpeg; the deprecated fields (key_frame,
   // interlaced_frame, top_field_first) still mirror them.
   out.key_frame = frame.flags & ffmpeg_next::ffi::AV_FRAME_FLAG_KEY != 0;
-  out.interlaced =
-    frame.flags & ffmpeg_next::ffi::AV_FRAME_FLAG_INTERLACED != 0;
-  out.top_field_first =
-    frame.flags & ffmpeg_next::ffi::AV_FRAME_FLAG_TOP_FIELD_FIRST != 0;
+  out.interlaced = frame.flags & ffmpeg_next::ffi::AV_FRAME_FLAG_INTERLACED != 0;
+  out.top_field_first = frame.flags & ffmpeg_next::ffi::AV_FRAME_FLAG_TOP_FIELD_FIRST != 0;
   // Best-effort timestamp.
   if frame.best_effort_timestamp != AV_NOPTS_VALUE {
     out.best_effort_timestamp = Some(frame.best_effort_timestamp);
@@ -356,9 +354,7 @@ fn map_transfer(raw: i32) -> ColorTransfer {
     x if x == AVColorTransferCharacteristic::AVCOL_TRC_SMPTE2084 as i32 => {
       ColorTransfer::SmpteSt2084Pq
     }
-    x if x == AVColorTransferCharacteristic::AVCOL_TRC_SMPTE428 as i32 => {
-      ColorTransfer::SmpteSt428
-    }
+    x if x == AVColorTransferCharacteristic::AVCOL_TRC_SMPTE428 as i32 => ColorTransfer::SmpteSt428,
     x if x == AVColorTransferCharacteristic::AVCOL_TRC_ARIB_STD_B67 as i32 => {
       ColorTransfer::AribStdB67Hlg
     }

@@ -3,9 +3,7 @@
 //! method bodies return [`AudioDecodeError::NotImplemented`] until a
 //! follow-up commit wires up `ffmpeg::decoder::Audio`.
 
-use mediadecode::{
-  Timebase, decoder::AudioStreamDecoder, frame::AudioFrame, packet::AudioPacket,
-};
+use mediadecode::{Timebase, decoder::AudioStreamDecoder, frame::AudioFrame, packet::AudioPacket};
 
 use crate::{Ffmpeg, FfmpegBuffer};
 

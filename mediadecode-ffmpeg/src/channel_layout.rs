@@ -156,9 +156,8 @@ fn describe_layout(layout: &ChannelLayout) -> SmolStr {
   // comfortably bigger than every named layout — and grow once if it
   // wasn't enough.
   let mut buf = std::vec![0i8; 128];
-  let mut needed = unsafe {
-    ffi::av_channel_layout_describe(&layout.0 as *const _, buf.as_mut_ptr(), buf.len())
-  };
+  let mut needed =
+    unsafe { ffi::av_channel_layout_describe(&layout.0 as *const _, buf.as_mut_ptr(), buf.len()) };
   if needed < 0 {
     return SmolStr::default();
   }

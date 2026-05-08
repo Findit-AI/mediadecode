@@ -147,7 +147,7 @@ pub enum ChannelLayoutKind {
 }
 
 impl Default for ChannelLayoutKind {
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   fn default() -> Self {
     Self::Unknown
   }
@@ -156,7 +156,7 @@ impl Default for ChannelLayoutKind {
 impl ChannelLayoutKind {
   /// Decode from the stable `u32` representation produced by [`Self::to_u32`].
   /// Unrecognised values map to [`Self::Unknown`].
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn from_u32(value: u32) -> Self {
     match value {
       1 => Self::Mono,
@@ -202,7 +202,7 @@ impl ChannelLayoutKind {
   }
 
   /// Stable wire representation. `0` always means [`Self::Unknown`].
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn to_u32(self) -> u32 {
     match self {
       Self::Unknown => 0,
@@ -273,7 +273,7 @@ pub enum AudioChannelOrderKind {
 impl AudioChannelOrderKind {
   /// Decode from the stable `u32` representation. Unrecognised values
   /// map to [`Self::Unspecified`].
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn from_u32(value: u32) -> Self {
     match value {
       1 => Self::Native,
@@ -284,7 +284,7 @@ impl AudioChannelOrderKind {
   }
 
   /// Stable wire representation. `0` always means [`Self::Unspecified`].
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn as_u32(self) -> u32 {
     self as u32
   }
@@ -294,7 +294,12 @@ impl AudioChannelOrderKind {
 //  Alloc-gated structs (`AudioChannelSpec`, `AudioChannelLayout`).
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
+pub use alloc_only::{AudioChannelLayout, AudioChannelSpec};
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
 mod alloc_only {
   use super::{AudioChannelOrderKind, ChannelLayoutKind};
   use smol_str::SmolStr;
@@ -302,8 +307,7 @@ mod alloc_only {
 
   /// One entry in a [`AudioChannelLayout::custom_channels`] list — the
   /// per-channel description for a [`AudioChannelOrderKind::Custom`]
-  /// layout.
-  #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+  /// layout.  
   #[derive(Debug, Clone, PartialEq, Eq, Default)]
   pub struct AudioChannelSpec {
     index: u32,
@@ -314,70 +318,70 @@ mod alloc_only {
   impl AudioChannelSpec {
     /// Constructs an `AudioChannelSpec` with the given channel index
     /// and backend-specific raw id. Label defaults to empty.
-    #[inline]
-    pub fn new(index: u32, raw_id: u32) -> Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn new(index: u32, raw_id: u32) -> Self {
       Self {
         index,
         raw_id,
-        ..Self::default()
+        label: SmolStr::new_inline(""),
       }
     }
 
     /// Index of this channel in the layout (0-based).
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub const fn index(&self) -> u32 {
       self.index
     }
 
     /// Backend-specific channel id (e.g. FFmpeg's `AVChannel` integer).
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub const fn raw_id(&self) -> u32 {
       self.raw_id
     }
 
     /// Human-readable label, or the empty string if unspecified.
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub fn label(&self) -> &str {
       self.label.as_str()
     }
 
     /// Sets the channel index (consuming builder).
-    #[inline]
-    pub fn with_index(mut self, value: u32) -> Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn with_index(mut self, value: u32) -> Self {
       self.set_index(value);
       self
     }
 
     /// Sets the channel index in place.
-    #[inline]
-    pub fn set_index(&mut self, value: u32) -> &mut Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn set_index(&mut self, value: u32) -> &mut Self {
       self.index = value;
       self
     }
 
     /// Sets the raw id (consuming builder).
-    #[inline]
-    pub fn with_raw_id(mut self, value: u32) -> Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn with_raw_id(mut self, value: u32) -> Self {
       self.set_raw_id(value);
       self
     }
 
     /// Sets the raw id in place.
-    #[inline]
-    pub fn set_raw_id(&mut self, value: u32) -> &mut Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn set_raw_id(&mut self, value: u32) -> &mut Self {
       self.raw_id = value;
       self
     }
 
     /// Sets the label (consuming builder).
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub fn with_label(mut self, value: impl Into<SmolStr>) -> Self {
       self.set_label(value);
       self
     }
 
     /// Sets the label in place.
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub fn set_label(&mut self, value: impl Into<SmolStr>) -> &mut Self {
       self.label = value.into();
       self
@@ -418,29 +422,33 @@ mod alloc_only {
     /// count. All other fields are at their default values
     /// (`Unspecified` / `Unknown` / empty); use the `with_*` builders to
     /// fill them in.
-    #[inline]
-    pub fn new(channels: u32) -> Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn new(channels: u32) -> Self {
       Self {
         channels,
-        ..Self::default()
+        order: AudioChannelOrderKind::Unspecified,
+        known_kind: ChannelLayoutKind::Unknown,
+        native_mask: None,
+        custom_channels: Vec::new(),
+        description: SmolStr::new_inline(""),
       }
     }
 
     /// Channel ordering (Native / Custom / Ambisonic / Unspecified).
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub const fn order(&self) -> AudioChannelOrderKind {
       self.order
     }
 
     /// Total channel count.
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub const fn channels(&self) -> u32 {
       self.channels
     }
 
     /// High-level layout tag, or [`ChannelLayoutKind::Unknown`] if no
     /// well-known shape matches.
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub const fn known_kind(&self) -> ChannelLayoutKind {
       self.known_kind
     }
@@ -448,21 +456,21 @@ mod alloc_only {
     /// Native-order bitmask of `AV_CH_*` channel positions, when
     /// applicable. `None` for Custom / Unspecified orders or when the
     /// mask is zero.
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub const fn native_mask(&self) -> Option<u64> {
       self.native_mask
     }
 
     /// Per-channel descriptors for [`AudioChannelOrderKind::Custom`]
     /// layouts; empty otherwise.
-    #[inline]
-    pub fn custom_channels(&self) -> &[AudioChannelSpec] {
-      &self.custom_channels
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn custom_channels(&self) -> &[AudioChannelSpec] {
+      self.custom_channels.as_slice()
     }
 
     /// Human-readable description (e.g. `"5.1(side)"`,
     /// `"3 channels (FL+FR+LFE)"`).
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub fn description(&self) -> &str {
       self.description.as_str()
     }
@@ -470,7 +478,7 @@ mod alloc_only {
     /// `true` when every field is at its default (zero channels,
     /// `Unspecified` order, `Unknown` kind, no mask, no custom channels,
     /// empty description). Useful as an "uninitialized" sentinel.
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub fn is_empty(&self) -> bool {
       self.channels == 0
         && self.order == AudioChannelOrderKind::Unspecified
@@ -481,93 +489,90 @@ mod alloc_only {
     }
 
     /// Sets the order (consuming builder).
-    #[inline]
-    pub fn with_order(mut self, value: AudioChannelOrderKind) -> Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn with_order(mut self, value: AudioChannelOrderKind) -> Self {
       self.set_order(value);
       self
     }
 
     /// Sets the order in place.
-    #[inline]
-    pub fn set_order(&mut self, value: AudioChannelOrderKind) -> &mut Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn set_order(&mut self, value: AudioChannelOrderKind) -> &mut Self {
       self.order = value;
       self
     }
 
     /// Sets the channel count (consuming builder).
-    #[inline]
-    pub fn with_channels(mut self, value: u32) -> Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn with_channels(mut self, value: u32) -> Self {
       self.set_channels(value);
       self
     }
 
     /// Sets the channel count in place.
-    #[inline]
-    pub fn set_channels(&mut self, value: u32) -> &mut Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn set_channels(&mut self, value: u32) -> &mut Self {
       self.channels = value;
       self
     }
 
     /// Sets the high-level layout tag (consuming builder).
-    #[inline]
-    pub fn with_known_kind(mut self, value: ChannelLayoutKind) -> Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn with_known_kind(mut self, value: ChannelLayoutKind) -> Self {
       self.set_known_kind(value);
       self
     }
 
     /// Sets the high-level layout tag in place.
-    #[inline]
-    pub fn set_known_kind(&mut self, value: ChannelLayoutKind) -> &mut Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn set_known_kind(&mut self, value: ChannelLayoutKind) -> &mut Self {
       self.known_kind = value;
       self
     }
 
     /// Sets the native-order bitmask (consuming builder).
-    #[inline]
-    pub fn with_native_mask(mut self, value: Option<u64>) -> Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn with_native_mask(mut self, value: Option<u64>) -> Self {
       self.set_native_mask(value);
       self
     }
 
     /// Sets the native-order bitmask in place.
-    #[inline]
-    pub fn set_native_mask(&mut self, value: Option<u64>) -> &mut Self {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    pub const fn set_native_mask(&mut self, value: Option<u64>) -> &mut Self {
       self.native_mask = value;
       self
     }
 
     /// Sets the custom-order channel list (consuming builder).
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub fn with_custom_channels(mut self, value: Vec<AudioChannelSpec>) -> Self {
       self.set_custom_channels(value);
       self
     }
 
     /// Sets the custom-order channel list in place.
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub fn set_custom_channels(&mut self, value: Vec<AudioChannelSpec>) -> &mut Self {
       self.custom_channels = value;
       self
     }
 
     /// Sets the human-readable description (consuming builder).
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub fn with_description(mut self, value: impl Into<SmolStr>) -> Self {
       self.set_description(value);
       self
     }
 
     /// Sets the human-readable description in place.
-    #[inline]
+    #[cfg_attr(not(tarpaulin), inline(always))]
     pub fn set_description(&mut self, value: impl Into<SmolStr>) -> &mut Self {
       self.description = value.into();
       self
     }
   }
 }
-
-#[cfg(feature = "alloc")]
-pub use alloc_only::{AudioChannelLayout, AudioChannelSpec};
 
 #[cfg(test)]
 mod tests {
@@ -579,7 +584,10 @@ mod tests {
 
   #[test]
   fn channel_layout_kind_default_is_unknown() {
-    assert!(matches!(ChannelLayoutKind::default(), ChannelLayoutKind::Unknown));
+    assert!(matches!(
+      ChannelLayoutKind::default(),
+      ChannelLayoutKind::Unknown
+    ));
   }
 
   #[test]
@@ -627,13 +635,20 @@ mod tests {
     ];
     for kind in all {
       let n = kind.to_u32();
-      assert_eq!(ChannelLayoutKind::from_u32(n), kind, "round-trip failed for {kind:?}");
+      assert_eq!(
+        ChannelLayoutKind::from_u32(n),
+        kind,
+        "round-trip failed for {kind:?}"
+      );
     }
   }
 
   #[test]
   fn channel_layout_kind_unknown_for_garbage() {
-    assert_eq!(ChannelLayoutKind::from_u32(99_999), ChannelLayoutKind::Unknown);
+    assert_eq!(
+      ChannelLayoutKind::from_u32(99_999),
+      ChannelLayoutKind::Unknown
+    );
     assert_eq!(ChannelLayoutKind::from_u32(0), ChannelLayoutKind::Unknown);
   }
 
@@ -641,7 +656,10 @@ mod tests {
   fn channel_layout_kind_display() {
     assert_eq!(format!("{}", ChannelLayoutKind::Mono), "mono");
     assert_eq!(format!("{}", ChannelLayoutKind::Ch5_1), "5.1");
-    assert_eq!(format!("{}", ChannelLayoutKind::Ch7_1WideBack), "7.1 wide back");
+    assert_eq!(
+      format!("{}", ChannelLayoutKind::Ch7_1WideBack),
+      "7.1 wide back"
+    );
     assert_eq!(format!("{}", ChannelLayoutKind::Unknown), "unknown");
   }
 
@@ -659,7 +677,10 @@ mod tests {
 
   #[test]
   fn order_default_is_unspecified() {
-    assert_eq!(AudioChannelOrderKind::default(), AudioChannelOrderKind::Unspecified);
+    assert_eq!(
+      AudioChannelOrderKind::default(),
+      AudioChannelOrderKind::Unspecified
+    );
   }
 
   #[test]
@@ -676,8 +697,14 @@ mod tests {
 
   #[test]
   fn order_unspecified_for_garbage() {
-    assert_eq!(AudioChannelOrderKind::from_u32(42), AudioChannelOrderKind::Unspecified);
-    assert_eq!(AudioChannelOrderKind::from_u32(0), AudioChannelOrderKind::Unspecified);
+    assert_eq!(
+      AudioChannelOrderKind::from_u32(42),
+      AudioChannelOrderKind::Unspecified
+    );
+    assert_eq!(
+      AudioChannelOrderKind::from_u32(0),
+      AudioChannelOrderKind::Unspecified
+    );
   }
 
   #[test]

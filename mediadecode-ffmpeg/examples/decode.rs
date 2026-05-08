@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       Err(mediadecode_ffmpeg::Error::Ffmpeg(ffmpeg::Error::Other { errno }))
         if errno == ffmpeg::error::EAGAIN =>
       {
-        break
+        break;
       }
       Err(mediadecode_ffmpeg::Error::Ffmpeg(ffmpeg::Error::Eof)) => break,
       Err(e) => {

@@ -132,7 +132,7 @@ pub struct SideDataEntry {
 pub struct MasteringDisplay {
   /// Display primary chromaticities `(x, y)` for R, G, B in CIE 1931
   /// (each as `(num, den)` rational, with `den` non-zero).
-  pub display_primaries: [(u32, u32); 3 /* R, G, B */],
+  pub display_primaries: [(u32, u32); 3],
   /// White-point chromaticity `(x, y)` as rationals.
   pub white_point: (u32, u32),
   /// Maximum luminance in `0.0001 cd/m²` units (rational `(num, den)`).

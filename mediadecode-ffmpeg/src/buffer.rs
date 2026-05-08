@@ -8,8 +8,7 @@
 //! reference and lets FFmpeg free the memory when the last reference
 //! goes away.
 
-use core::fmt;
-use core::slice;
+use core::{fmt, slice};
 
 use ffmpeg_next::ffi::{AVBufferRef, av_buffer_ref, av_buffer_unref};
 
@@ -85,11 +84,7 @@ impl FfmpegBuffer {
   /// `buf` must either be null or point to a live `AVBufferRef` for
   /// the duration of this call.
   #[inline]
-  pub unsafe fn from_ref_view(
-    buf: *mut AVBufferRef,
-    offset: usize,
-    len: usize,
-  ) -> Option<Self> {
+  pub unsafe fn from_ref_view(buf: *mut AVBufferRef, offset: usize, len: usize) -> Option<Self> {
     if buf.is_null() {
       return None;
     }

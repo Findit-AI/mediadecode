@@ -6,28 +6,28 @@
 use bitflags::bitflags;
 
 bitflags! {
-    /// Per-packet flags.
-    ///
-    /// Bit values are the public API:
-    /// - `KEY = 0b001` — packet starts a keyframe (FFmpeg `AV_PKT_FLAG_KEY`,
-    ///   WebCodecs `'key'`, ProRes RAW absence of
-    ///   `kCMSampleAttachmentKey_NotSync`).
-    /// - `CORRUPT = 0b010` — packet is known-corrupt (FFmpeg
-    ///   `AV_PKT_FLAG_CORRUPT`).
-    /// - `DISCARD = 0b100` — packet should be skipped during reconstruction
-    ///   (FFmpeg `AV_PKT_FLAG_DISCARD`).
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct PacketFlags: u8 {
-        /// Keyframe / sync sample.
-        const KEY     = 0b001;
-        /// Bitstream-level corruption known.
-        const CORRUPT = 0b010;
-        /// Demuxer hint: skip this packet.
-        const DISCARD = 0b100;
-    }
+  /// Per-packet flags.
+  ///
+  /// Bit values are the public API:
+  /// - `KEY = 0b001` — packet starts a keyframe (FFmpeg `AV_PKT_FLAG_KEY`,
+  ///   WebCodecs `'key'`, ProRes RAW absence of
+  ///   `kCMSampleAttachmentKey_NotSync`).
+  /// - `CORRUPT = 0b010` — packet is known-corrupt (FFmpeg
+  ///   `AV_PKT_FLAG_CORRUPT`).
+  /// - `DISCARD = 0b100` — packet should be skipped during reconstruction
+  ///   (FFmpeg `AV_PKT_FLAG_DISCARD`).
+  #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+  pub struct PacketFlags: u8 {
+    /// Keyframe / sync sample.
+    const KEY     = 0b001;
+    /// Bitstream-level corruption known.
+    const CORRUPT = 0b010;
+    /// Demuxer hint: skip this packet.
+    const DISCARD = 0b100;
+  }
 }
 
-use crate::{Timestamp, adapter::VideoAdapter};
+use crate::Timestamp;
 
 /// A compressed video packet.
 ///
@@ -38,20 +38,20 @@ use crate::{Timestamp, adapter::VideoAdapter};
 /// every backend supplies all three (WebCodecs `EncodedVideoChunk`
 /// has no DTS; vendor RAW SDKs that produce packets at all derive
 /// timestamps from frame index × fps).
-pub struct VideoPacket<A: VideoAdapter, B: AsRef<[u8]>> {
+pub struct VideoPacket<E, D> {
   pts: Option<Timestamp>,
   dts: Option<Timestamp>,
   duration: Option<Timestamp>,
   flags: PacketFlags,
-  data: B,
-  extra: A::PacketExtra,
+  data: D,
+  extra: E,
 }
 
-impl<A: VideoAdapter, B: AsRef<[u8]>> VideoPacket<A, B> {
+impl<E, D> VideoPacket<E, D> {
   /// Constructs a `VideoPacket` from `data` and `extra`. All
   /// timestamps default to `None` and flags to empty.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn new(data: B, extra: A::PacketExtra) -> Self {
+  pub const fn new(data: D, extra: E) -> Self {
     Self {
       pts: None,
       dts: None,
@@ -84,27 +84,27 @@ impl<A: VideoAdapter, B: AsRef<[u8]>> VideoPacket<A, B> {
   }
   /// Returns the compressed data buffer.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn data(&self) -> &B {
+  pub const fn data(&self) -> &D {
     &self.data
   }
   /// Returns the backend-specific extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn extra(&self) -> &A::PacketExtra {
+  pub const fn extra(&self) -> &E {
     &self.extra
   }
   /// Returns a mutable reference to the backend-specific extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn extra_mut(&mut self) -> &mut A::PacketExtra {
+  pub fn extra_mut(&mut self) -> &mut E {
     &mut self.extra
   }
   /// Consumes the packet and returns the buffer.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn into_data(self) -> B {
+  pub fn into_data(self) -> D {
     self.data
   }
   /// Consumes the packet and returns `(buffer, extras)`.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn into_parts(self) -> (B, A::PacketExtra) {
+  pub fn into_parts(self) -> (D, E) {
     (self.data, self.extra)
   }
 
@@ -159,22 +159,20 @@ impl<A: VideoAdapter, B: AsRef<[u8]>> VideoPacket<A, B> {
   }
 }
 
-use crate::adapter::AudioAdapter;
-
 /// A compressed audio packet.
-pub struct AudioPacket<A: AudioAdapter, B: AsRef<[u8]>> {
+pub struct AudioPacket<E, D> {
   pts: Option<Timestamp>,
   dts: Option<Timestamp>,
   duration: Option<Timestamp>,
   flags: PacketFlags,
-  data: B,
-  extra: A::PacketExtra,
+  data: D,
+  extra: E,
 }
 
-impl<A: AudioAdapter, B: AsRef<[u8]>> AudioPacket<A, B> {
+impl<E, D> AudioPacket<E, D> {
   /// Constructs an `AudioPacket` from `data` and `extra`.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn new(data: B, extra: A::PacketExtra) -> Self {
+  pub const fn new(data: D, extra: E) -> Self {
     Self {
       pts: None,
       dts: None,
@@ -207,27 +205,27 @@ impl<A: AudioAdapter, B: AsRef<[u8]>> AudioPacket<A, B> {
   }
   /// Returns the compressed audio data.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn data(&self) -> &B {
+  pub const fn data(&self) -> &D {
     &self.data
   }
   /// Returns the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn extra(&self) -> &A::PacketExtra {
+  pub const fn extra(&self) -> &E {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn extra_mut(&mut self) -> &mut A::PacketExtra {
+  pub fn extra_mut(&mut self) -> &mut E {
     &mut self.extra
   }
   /// Consumes the packet and returns the buffer.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn into_data(self) -> B {
+  pub fn into_data(self) -> D {
     self.data
   }
   /// Consumes the packet and returns `(buffer, extras)`.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn into_parts(self) -> (B, A::PacketExtra) {
+  pub fn into_parts(self) -> (D, E) {
     (self.data, self.extra)
   }
 
@@ -282,21 +280,19 @@ impl<A: AudioAdapter, B: AsRef<[u8]>> AudioPacket<A, B> {
   }
 }
 
-use crate::adapter::SubtitleAdapter;
-
 /// A compressed subtitle packet.
-pub struct SubtitlePacket<A: SubtitleAdapter, B: AsRef<[u8]>> {
+pub struct SubtitlePacket<E, D> {
   pts: Option<Timestamp>,
   duration: Option<Timestamp>,
   flags: PacketFlags,
-  data: B,
-  extra: A::PacketExtra,
+  data: D,
+  extra: E,
 }
 
-impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitlePacket<A, B> {
+impl<E, D> SubtitlePacket<E, D> {
   /// Constructs a `SubtitlePacket` from `data` and `extra`.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn new(data: B, extra: A::PacketExtra) -> Self {
+  pub const fn new(data: D, extra: E) -> Self {
     Self {
       pts: None,
       duration: None,
@@ -323,27 +319,27 @@ impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitlePacket<A, B> {
   }
   /// Returns the compressed subtitle data.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn data(&self) -> &B {
+  pub const fn data(&self) -> &D {
     &self.data
   }
   /// Returns the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn extra(&self) -> &A::PacketExtra {
+  pub const fn extra(&self) -> &E {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn extra_mut(&mut self) -> &mut A::PacketExtra {
+  pub fn extra_mut(&mut self) -> &mut E {
     &mut self.extra
   }
   /// Consumes the packet and returns the buffer.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn into_data(self) -> B {
+  pub fn into_data(self) -> D {
     self.data
   }
   /// Consumes the packet and returns `(buffer, extras)`.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn into_parts(self) -> (B, A::PacketExtra) {
+  pub fn into_parts(self) -> (D, E) {
     (self.data, self.extra)
   }
 
@@ -413,14 +409,6 @@ mod tests {
   use crate::Timebase;
   use core::num::NonZeroU32;
 
-  struct VLoop;
-  impl crate::adapter::VideoAdapter for VLoop {
-    type CodecId = u32;
-    type PixelFormat = u32;
-    type PacketExtra = ();
-    type FrameExtra = ();
-  }
-
   fn ms_tb() -> Timebase {
     Timebase::new(1, NonZeroU32::new(1000).unwrap())
   }
@@ -428,7 +416,7 @@ mod tests {
   #[test]
   fn video_packet_construct_and_access() {
     let data: &[u8] = &[1, 2, 3];
-    let p: VideoPacket<VLoop, &[u8]> = VideoPacket::new(data, ());
+    let p: VideoPacket<_, &[u8]> = VideoPacket::new(data, ());
     assert_eq!(p.pts(), None);
     assert_eq!(p.flags(), PacketFlags::empty());
     assert_eq!(*p.data(), data);
@@ -437,7 +425,7 @@ mod tests {
   #[test]
   fn video_packet_builders_chain() {
     let pts = crate::Timestamp::new(1500, ms_tb());
-    let p: VideoPacket<VLoop, &[u8]> = VideoPacket::new(&[][..], ())
+    let p: VideoPacket<_, &[u8]> = VideoPacket::new(&[][..], ())
       .with_pts(Some(pts))
       .with_flags(PacketFlags::KEY);
     assert_eq!(p.pts(), Some(pts));
@@ -446,41 +434,25 @@ mod tests {
 
   #[test]
   fn video_packet_into_parts() {
-    let p: VideoPacket<VLoop, &[u8]> = VideoPacket::new(&[1u8, 2][..], ());
+    let p: VideoPacket<_, &[u8]> = VideoPacket::new(&[1u8, 2][..], ());
     let (data, _extra) = p.into_parts();
     assert_eq!(data, &[1, 2]);
-  }
-
-  struct ALoop;
-  impl crate::adapter::AudioAdapter for ALoop {
-    type CodecId = u32;
-    type SampleFormat = u32;
-    type ChannelLayout = u32;
-    type PacketExtra = ();
-    type FrameExtra = ();
   }
 
   #[test]
   fn audio_packet_round_trip() {
     let data: &[u8] = &[7, 8, 9];
-    let p: AudioPacket<ALoop, &[u8]> = AudioPacket::new(data, ()).with_flags(PacketFlags::KEY);
+    let p: AudioPacket<_, &[u8]> = AudioPacket::new(data, ()).with_flags(PacketFlags::KEY);
     assert_eq!(*p.data(), data);
     assert!(p.flags().contains(PacketFlags::KEY));
     let (recovered, _) = p.into_parts();
     assert_eq!(recovered, data);
   }
 
-  struct SLoop;
-  impl crate::adapter::SubtitleAdapter for SLoop {
-    type CodecId = u32;
-    type PacketExtra = ();
-    type FrameExtra = ();
-  }
-
   #[test]
   fn subtitle_packet_round_trip() {
     let data: &[u8] = b"hi";
-    let p: SubtitlePacket<SLoop, &[u8]> = SubtitlePacket::new(data, ());
+    let p: SubtitlePacket<_, &[u8]> = SubtitlePacket::new(data, ());
     assert_eq!(*p.data(), data);
   }
 }

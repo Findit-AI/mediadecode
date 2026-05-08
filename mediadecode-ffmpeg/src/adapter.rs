@@ -6,8 +6,10 @@
 //! associated types together so the rest of the API (Packet / Frame /
 //! Decoder) reads cleanly: `VideoPacket<Ffmpeg, FfmpegBuffer>` etc.
 
-use mediadecode::adapter::{AudioAdapter, SubtitleAdapter, VideoAdapter};
-use mediadecode::channel::AudioChannelLayout;
+use mediadecode::{
+  adapter::{AudioAdapter, SubtitleAdapter, VideoAdapter},
+  channel::AudioChannelLayout,
+};
 
 use crate::{
   codec_id::CodecId,

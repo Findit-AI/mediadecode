@@ -1,8 +1,10 @@
 use std::{collections::VecDeque, mem::ManuallyDrop, ptr};
 
 use ffmpeg_next::{
+  Codec, Packet, Rational,
   codec::{
     self,
+    Context,
     // Bring the `Mut` / `Ref` traits into scope so `Packet::as_ptr` /
     // `Packet::as_mut_ptr` resolve. They are aliased to avoid shadowing
     // any future `Mut`/`Ref` types we might add — `cargo clippy` would
@@ -10,15 +12,14 @@ use ffmpeg_next::{
     // can mistakenly look unused. Confirmed in use by all `packet.as_ptr()`
     // / `packet.as_mut_ptr()` call sites in this module.
     packet::{Mut as PacketMut, Ref as PacketRef},
-    Context,
   },
   ffi::{
-    av_buffer_ref, av_buffer_unref, av_frame_move_ref, av_frame_unref, av_hwdevice_ctx_create,
-    av_hwframe_transfer_data, av_packet_ref, avcodec_alloc_context3, avcodec_free_context,
-    avcodec_parameters_alloc, avcodec_parameters_copy, avcodec_parameters_free,
-    avcodec_parameters_to_context, AVBufferRef, AVCodec, AVFrame, AVHWFramesContext, AVMediaType,
+    AVBufferRef, AVCodec, AVFrame, AVHWFramesContext, AVMediaType, av_buffer_ref, av_buffer_unref,
+    av_frame_move_ref, av_frame_unref, av_hwdevice_ctx_create, av_hwframe_transfer_data,
+    av_packet_ref, avcodec_alloc_context3, avcodec_free_context, avcodec_parameters_alloc,
+    avcodec_parameters_copy, avcodec_parameters_free, avcodec_parameters_to_context,
   },
-  frame, Codec, Packet, Rational,
+  frame,
 };
 
 /// Local FFI shim: `avcodec_find_decoder` declared with `c_int` instead of
@@ -37,7 +38,7 @@ mod c_shims {
 use crate::{
   backend::{self, Backend},
   error::{Error, Result},
-  ffi::{codec_supports_hwaccel, get_hw_format, CallbackState},
+  ffi::{CallbackState, codec_supports_hwaccel, get_hw_format},
   frame::Frame,
 };
 
@@ -1201,9 +1202,7 @@ unsafe fn transfer_hw_frame(
     // to the next backend rather than collapsing on an unusable frame;
     // post-probe, the caller gets an `Err` they can branch into a
     // software fallback.
-    let dst_pix_fmt = crate::pix_fmt::PixelFormat::from_raw(
-      (*dst.as_inner_mut().as_ptr()).format,
-    );
+    let dst_pix_fmt = crate::pix_fmt::PixelFormat::from_raw((*dst.as_inner_mut().as_ptr()).format);
     if !crate::frame::is_supported_cpu_pix_fmt(dst_pix_fmt) {
       tracing::warn!(
         pix_fmt = dst_pix_fmt.raw(),
@@ -1419,11 +1418,7 @@ fn packet_side_data_bytes(packet: &Packet, max_entries: usize) -> usize {
 fn packet_side_data_count(packet: &Packet) -> usize {
   // SAFETY: side_data_elems is `c_int`, safe to read; clamp negatives to 0.
   let nel = unsafe { (*packet.as_ptr()).side_data_elems };
-  if nel <= 0 {
-    0
-  } else {
-    nel as usize
-  }
+  if nel <= 0 { 0 } else { nel as usize }
 }
 
 /// Just `EAGAIN` (separate from EOF — the FFmpeg send/receive state machine
@@ -1571,9 +1566,7 @@ fn drain_into_pending(
         // `Frame::as_ptr` would return `None`. Refuse the candidate
         // before the queue grows so probing advances to the next
         // backend instead.
-        let cpu_pix_fmt = crate::pix_fmt::PixelFormat::from_raw(unsafe {
-          (*cpu.as_ptr()).format
-        });
+        let cpu_pix_fmt = crate::pix_fmt::PixelFormat::from_raw(unsafe { (*cpu.as_ptr()).format });
         if !crate::frame::is_supported_cpu_pix_fmt(cpu_pix_fmt) {
           tracing::warn!(
             pix_fmt = cpu_pix_fmt.raw(),
@@ -1813,7 +1806,7 @@ mod tests {
   /// ~256 MiB of side data while logs claim a few KiB.
   #[test]
   fn packet_side_data_counts_against_probe_budget() {
-    use ffmpeg_next::ffi::{av_packet_new_side_data, AVPacketSideDataType};
+    use ffmpeg_next::ffi::{AVPacketSideDataType, av_packet_new_side_data};
 
     const PAYLOAD_SIZE: usize = 16;
     const SIDE_DATA_SIZE: usize = 1024 * 1024; // 1 MiB
@@ -1862,7 +1855,7 @@ mod tests {
   /// + AVBufferRef + allocator overhead per cloned copy.
   #[test]
   fn packet_side_data_bytes_charges_descriptor_overhead_for_zero_size_entries() {
-    use ffmpeg_next::ffi::{av_packet_new_side_data, AVPacketSideDataType};
+    use ffmpeg_next::ffi::{AVPacketSideDataType, av_packet_new_side_data};
 
     let mut packet = Packet::new(0);
     // Attach two zero-byte entries of distinct types so neither call
@@ -1905,7 +1898,7 @@ mod tests {
   /// (size_a + size_b)`, confirming entries 3-5 were not even read.
   #[test]
   fn packet_side_data_bytes_respects_max_entries_cap() {
-    use ffmpeg_next::ffi::{av_packet_new_side_data, AVPacketSideDataType};
+    use ffmpeg_next::ffi::{AVPacketSideDataType, av_packet_new_side_data};
 
     let mut packet = Packet::new(0);
     // Five distinct side-data types so each `av_packet_new_side_data`
@@ -1951,7 +1944,7 @@ mod tests {
   /// against.
   #[test]
   fn packet_side_data_count_reports_attached_entries() {
-    use ffmpeg_next::ffi::{av_packet_new_side_data, AVPacketSideDataType};
+    use ffmpeg_next::ffi::{AVPacketSideDataType, av_packet_new_side_data};
 
     let mut packet = Packet::new(0);
     let _p1 = unsafe {
@@ -2189,7 +2182,7 @@ mod tests {
   /// transfer ownership to `DecoderState` without double-freeing).
   #[test]
   fn partial_build_state_into_owned_disarms_and_returns_originals() {
-    use ffmpeg_next::ffi::{av_buffer_alloc, av_buffer_unref, AVPixelFormat};
+    use ffmpeg_next::ffi::{AVPixelFormat, av_buffer_alloc, av_buffer_unref};
 
     // SAFETY: av_buffer_alloc returns a fresh AVBufferRef* with refcount
     // 1, or NULL on OOM. We free it ourselves below (after into_owned

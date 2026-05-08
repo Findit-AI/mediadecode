@@ -219,12 +219,31 @@ mod tests {
   /// ever change in `ffmpeg-sys-next`'s bindings, this catches it.
   #[test]
   fn known_constants_match_av_values() {
-    assert_eq!(PixelFormat::NV12.raw(), AVPixelFormat::AV_PIX_FMT_NV12 as i32);
-    assert_eq!(PixelFormat::P010LE.raw(), AVPixelFormat::AV_PIX_FMT_P010LE as i32);
-    assert_eq!(PixelFormat::P416LE.raw(), AVPixelFormat::AV_PIX_FMT_P416LE as i32);
-    assert_eq!(PixelFormat::NONE.raw(), -1, "AV_PIX_FMT_NONE must be -1 (FFmpeg ABI sentinel)");
-    assert_eq!(PixelFormat::YUV420P.raw(), AVPixelFormat::AV_PIX_FMT_YUV420P as i32);
-    assert_eq!(PixelFormat::RGB24.raw(), AVPixelFormat::AV_PIX_FMT_RGB24 as i32);
+    assert_eq!(
+      PixelFormat::NV12.raw(),
+      AVPixelFormat::AV_PIX_FMT_NV12 as i32
+    );
+    assert_eq!(
+      PixelFormat::P010LE.raw(),
+      AVPixelFormat::AV_PIX_FMT_P010LE as i32
+    );
+    assert_eq!(
+      PixelFormat::P416LE.raw(),
+      AVPixelFormat::AV_PIX_FMT_P416LE as i32
+    );
+    assert_eq!(
+      PixelFormat::NONE.raw(),
+      -1,
+      "AV_PIX_FMT_NONE must be -1 (FFmpeg ABI sentinel)"
+    );
+    assert_eq!(
+      PixelFormat::YUV420P.raw(),
+      AVPixelFormat::AV_PIX_FMT_YUV420P as i32
+    );
+    assert_eq!(
+      PixelFormat::RGB24.raw(),
+      AVPixelFormat::AV_PIX_FMT_RGB24 as i32
+    );
   }
 
   #[test]
@@ -256,7 +275,10 @@ mod tests {
   #[test]
   fn debug_uses_name_for_known_formats() {
     assert_eq!(format!("{:?}", PixelFormat::NV12), "PixelFormat::NV12");
-    assert_eq!(format!("{:?}", PixelFormat::YUV420P), "PixelFormat::YUV420P");
+    assert_eq!(
+      format!("{:?}", PixelFormat::YUV420P),
+      "PixelFormat::YUV420P"
+    );
   }
 
   #[test]

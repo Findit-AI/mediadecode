@@ -11,7 +11,7 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use ffmpeg::{codec::Context as CodecContext, format, frame, media};
 use ffmpeg_next as ffmpeg;
 use mediadecode_ffmpeg::{Frame, VideoDecoder};
@@ -25,30 +25,34 @@ fn sample_path() -> Option<PathBuf> {
 /// Decode every frame using `mediadecode-ffmpeg`'s auto-probed hardware backend.
 fn decode_all_hw(path: &PathBuf) -> Result<usize, mediadecode_ffmpeg::Error> {
   let mut input = format::input(path).map_err(mediadecode_ffmpeg::Error::Ffmpeg)?;
-  let stream = input
-    .streams()
-    .best(media::Type::Video)
-    .ok_or(mediadecode_ffmpeg::Error::Ffmpeg(ffmpeg::Error::StreamNotFound))?;
+  let stream =
+    input
+      .streams()
+      .best(media::Type::Video)
+      .ok_or(mediadecode_ffmpeg::Error::Ffmpeg(
+        ffmpeg::Error::StreamNotFound,
+      ))?;
   let stream_index = stream.index();
 
   let mut decoder = VideoDecoder::open(stream.parameters())?;
   let mut frame = Frame::empty()?;
   let mut count = 0_usize;
 
-  let mut drain = |decoder: &mut VideoDecoder, count: &mut usize| -> Result<(), mediadecode_ffmpeg::Error> {
-    loop {
-      match decoder.receive_frame(&mut frame) {
-        Ok(()) => *count += 1,
-        Err(mediadecode_ffmpeg::Error::Ffmpeg(ffmpeg::Error::Other { errno }))
-          if errno == ffmpeg::error::EAGAIN =>
-        {
-          return Ok(());
+  let mut drain =
+    |decoder: &mut VideoDecoder, count: &mut usize| -> Result<(), mediadecode_ffmpeg::Error> {
+      loop {
+        match decoder.receive_frame(&mut frame) {
+          Ok(()) => *count += 1,
+          Err(mediadecode_ffmpeg::Error::Ffmpeg(ffmpeg::Error::Other { errno }))
+            if errno == ffmpeg::error::EAGAIN =>
+          {
+            return Ok(());
+          }
+          Err(mediadecode_ffmpeg::Error::Ffmpeg(ffmpeg::Error::Eof)) => return Ok(()),
+          Err(e) => return Err(e),
         }
-        Err(mediadecode_ffmpeg::Error::Ffmpeg(ffmpeg::Error::Eof)) => return Ok(()),
-        Err(e) => return Err(e),
       }
-    }
-  };
+    };
 
   for (s, packet) in input.packets() {
     if s.index() != stream_index {

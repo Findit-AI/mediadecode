@@ -11,9 +11,7 @@
 //! fallback inside this impl is tracked as a follow-up.
 
 use ffmpeg_next::codec::Parameters;
-use mediadecode::{
-  Timebase, decoder::VideoStreamDecoder, frame::VideoFrame, packet::VideoPacket,
-};
+use mediadecode::{Timebase, decoder::VideoStreamDecoder, frame::VideoFrame, packet::VideoPacket};
 
 use crate::{Error, Ffmpeg, FfmpegBuffer, Frame, VideoDecoder, convert};
 
@@ -99,7 +97,8 @@ impl VideoStreamDecoder for FfmpegVideoStreamDecoder {
     // haven't released it). The conversion bumps refcounts on the
     // AVBufferRefs it pulls into the produced VideoFrame, so the
     // source scratch frame can be reused on the next call.
-    let av_frame: *const ffmpeg_next::ffi::AVFrame = unsafe { self.scratch.as_inner_mut().as_ptr() };
+    let av_frame: *const ffmpeg_next::ffi::AVFrame =
+      unsafe { self.scratch.as_inner_mut().as_ptr() };
     let new_frame = unsafe { convert::av_frame_to_video_frame(av_frame, self.time_base) }
       .map_err(VideoDecodeError::Convert)?;
     *dst = new_frame;
@@ -129,6 +128,8 @@ pub enum VideoDecodeError {
   /// `send_packet` is not yet implemented for this decoder; submit
   /// packets through the lower-level [`VideoDecoder::send_packet`]
   /// API or wait for the follow-up commit that wires this path.
-  #[error("send_packet via the VideoStreamDecoder trait isn't wired up yet — use VideoDecoder::send_packet directly for now")]
+  #[error(
+    "send_packet via the VideoStreamDecoder trait isn't wired up yet — use VideoDecoder::send_packet directly for now"
+  )]
   SendPacketNotImplemented,
 }

@@ -131,8 +131,14 @@ mod tests {
 
   #[test]
   fn known_constants_match_av_values() {
-    assert_eq!(SampleFormat::S16.raw(), AVSampleFormat::AV_SAMPLE_FMT_S16 as i32);
-    assert_eq!(SampleFormat::FLTP.raw(), AVSampleFormat::AV_SAMPLE_FMT_FLTP as i32);
+    assert_eq!(
+      SampleFormat::S16.raw(),
+      AVSampleFormat::AV_SAMPLE_FMT_S16 as i32
+    );
+    assert_eq!(
+      SampleFormat::FLTP.raw(),
+      AVSampleFormat::AV_SAMPLE_FMT_FLTP as i32
+    );
     assert_eq!(SampleFormat::NONE.raw(), -1);
   }
 
@@ -183,6 +189,9 @@ mod tests {
 
   #[test]
   fn debug_falls_back_to_raw_for_unknown() {
-    assert_eq!(format!("{:?}", SampleFormat::from_raw(99_999)), "SampleFormat(99999)");
+    assert_eq!(
+      format!("{:?}", SampleFormat::from_raw(99_999)),
+      "SampleFormat(99999)"
+    );
   }
 }

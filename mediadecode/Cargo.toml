@@ -14,7 +14,7 @@ categories = ["multimedia", "multimedia::video", "multimedia::audio", "no-std", 
 [features]
 default = ["std"]
 alloc   = ["dep:smol_str"]
-std     = ["alloc", "mediatime/std"]
+std     = ["mediatime/default", "smol_str/default"]
 
 serde      = ["dep:serde", "mediatime/serde", "bitflags/serde"]
 arbitrary  = ["dep:arbitrary", "mediatime/arbitrary"]
