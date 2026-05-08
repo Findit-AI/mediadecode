@@ -199,6 +199,76 @@ impl<A: AudioAdapter, B: AsRef<[u8]>> AudioPacket<A, B> {
     pub const fn set_flags(&mut self, v: PacketFlags) -> &mut Self { self.flags = v; self }
 }
 
+use crate::adapter::SubtitleAdapter;
+
+/// A compressed subtitle packet.
+pub struct SubtitlePacket<A: SubtitleAdapter, B: AsRef<[u8]>> {
+    pts:      Option<Timestamp>,
+    duration: Option<Timestamp>,
+    flags:    PacketFlags,
+    data:     B,
+    extra:    A::PacketExtra,
+}
+
+impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitlePacket<A, B> {
+    /// Constructs a `SubtitlePacket` from `data` and `extra`.
+    #[inline]
+    pub fn new(data: B, extra: A::PacketExtra) -> Self {
+        Self {
+            pts: None,
+            duration: None,
+            flags: PacketFlags::empty(),
+            data,
+            extra,
+        }
+    }
+
+    /// Returns the presentation timestamp.
+    #[inline]
+    pub const fn pts(&self) -> Option<Timestamp> { self.pts }
+    /// Returns the duration.
+    #[inline]
+    pub const fn duration(&self) -> Option<Timestamp> { self.duration }
+    /// Returns the flags.
+    #[inline]
+    pub const fn flags(&self) -> PacketFlags { self.flags }
+    /// Returns the compressed subtitle data.
+    #[inline]
+    pub const fn data(&self) -> &B { &self.data }
+    /// Returns the backend extras.
+    #[inline]
+    pub const fn extra(&self) -> &A::PacketExtra { &self.extra }
+    /// Returns a mutable reference to the backend extras.
+    #[inline]
+    pub fn extra_mut(&mut self) -> &mut A::PacketExtra { &mut self.extra }
+    /// Consumes the packet and returns the buffer.
+    #[inline]
+    pub fn into_data(self) -> B { self.data }
+    /// Consumes the packet and returns `(buffer, extras)`.
+    #[inline]
+    pub fn into_parts(self) -> (B, A::PacketExtra) { (self.data, self.extra) }
+
+    /// Sets the PTS (consuming builder).
+    #[inline]
+    pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self { self.pts = v; self }
+    /// Sets the duration (consuming builder).
+    #[inline]
+    pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self { self.duration = v; self }
+    /// Sets the flags (consuming builder).
+    #[inline]
+    pub const fn with_flags(mut self, v: PacketFlags) -> Self { self.flags = v; self }
+
+    /// Sets the PTS in place.
+    #[inline]
+    pub const fn set_pts(&mut self, v: Option<Timestamp>) -> &mut Self { self.pts = v; self }
+    /// Sets the duration in place.
+    #[inline]
+    pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self { self.duration = v; self }
+    /// Sets the flags in place.
+    #[inline]
+    pub const fn set_flags(&mut self, v: PacketFlags) -> &mut Self { self.flags = v; self }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +352,19 @@ mod tests {
         assert!(p.flags().contains(PacketFlags::KEY));
         let (recovered, _) = p.into_parts();
         assert_eq!(recovered, data);
+    }
+
+    struct SLoop;
+    impl crate::adapter::SubtitleAdapter for SLoop {
+        type CodecId = u32;
+        type PacketExtra = ();
+        type FrameExtra = ();
+    }
+
+    #[test]
+    fn subtitle_packet_round_trip() {
+        let data: &[u8] = b"hi";
+        let p: SubtitlePacket<SLoop, &[u8]> = SubtitlePacket::new(data, ());
+        assert_eq!(*p.data(), data);
     }
 }
