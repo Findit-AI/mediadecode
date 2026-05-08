@@ -15,6 +15,7 @@
 #![cfg_attr(docsrs, allow(unused_attributes))]
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
+#![allow(clippy::type_complexity)]
 
 // Workspace pattern (mirrors mediatime / colconv / scenesdetect) — alias
 // `alloc` as `std` so `std::vec::Vec` etc. resolves in alloc-only builds.

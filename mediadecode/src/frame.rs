@@ -622,18 +622,9 @@ mod tests {
   }
 
   use crate::{
-    adapter::{AudioAdapter, SubtitleAdapter, VideoAdapter},
     color::{ColorInfo, ColorMatrix},
     subtitle::SubtitlePayload,
   };
-
-  struct VLoop;
-  impl VideoAdapter for VLoop {
-    type CodecId = u32;
-    type PixelFormat = u32;
-    type PacketExtra = ();
-    type FrameExtra = ();
-  }
 
   fn empty_planes() -> [Plane<&'static [u8]>; 4] {
     [
@@ -659,8 +650,7 @@ mod tests {
 
   #[test]
   fn video_frame_plane_index_clamped() {
-    let f: VideoFrame<u32, (), &[u8]> =
-      VideoFrame::new(64, 64, 0u32, empty_planes(), 2, ());
+    let f: VideoFrame<u32, (), &[u8]> = VideoFrame::new(64, 64, 0u32, empty_planes(), 2, ());
     assert!(f.plane(0).is_some());
     assert!(f.plane(1).is_some());
     assert!(f.plane(2).is_none());
@@ -670,21 +660,11 @@ mod tests {
   #[test]
   fn video_frame_builders_chain() {
     let ci = ColorInfo::UNSPECIFIED.with_matrix(ColorMatrix::Bt2020Ncl);
-    let f: VideoFrame<u32, (), &[u8]> =
-      VideoFrame::new(64, 64, 0u32, empty_planes(), 1, ())
-        .with_color(ci)
-        .with_visible_rect(Some(Rect::new(0, 0, 64, 64)));
+    let f: VideoFrame<u32, (), &[u8]> = VideoFrame::new(64, 64, 0u32, empty_planes(), 1, ())
+      .with_color(ci)
+      .with_visible_rect(Some(Rect::new(0, 0, 64, 64)));
     assert!(f.color().matrix().is_bt_2020_ncl());
     assert!(f.visible_rect().is_some());
-  }
-
-  struct ALoop;
-  impl AudioAdapter for ALoop {
-    type CodecId = u32;
-    type SampleFormat = u32;
-    type ChannelLayout = u32;
-    type PacketExtra = ();
-    type FrameExtra = ();
   }
 
   fn audio_planes() -> [Plane<&'static [u8]>; 8] {
@@ -719,13 +699,6 @@ mod tests {
     assert_eq!(f.channel_count(), 2);
     assert_eq!(f.plane_count(), 2);
     assert_eq!(f.planes().len(), 2);
-  }
-
-  struct SLoop;
-  impl SubtitleAdapter for SLoop {
-    type CodecId = u32;
-    type PacketExtra = ();
-    type FrameExtra = ();
   }
 
   #[test]

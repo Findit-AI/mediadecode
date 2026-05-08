@@ -25,10 +25,7 @@ pub trait VideoStreamDecoder {
   /// Submits one compressed packet.
   fn send_packet(
     &mut self,
-    packet: &VideoPacket<
-      <Self::Adapter as VideoAdapter>::PacketExtra,
-      Self::Buffer,
-    >,
+    packet: &VideoPacket<<Self::Adapter as VideoAdapter>::PacketExtra, Self::Buffer>,
   ) -> Result<(), Self::Error>;
 
   /// Drains one decoded frame into `dst`. Backends signal "no
@@ -96,10 +93,7 @@ pub trait AudioStreamDecoder {
   /// Submits a compressed audio packet.
   fn send_packet(
     &mut self,
-    packet: &AudioPacket<
-      <Self::Adapter as AudioAdapter>::PacketExtra,
-      Self::Buffer,
-    >,
+    packet: &AudioPacket<<Self::Adapter as AudioAdapter>::PacketExtra, Self::Buffer>,
   ) -> Result<(), Self::Error>;
   /// Drains a decoded frame.
   fn receive_frame(
@@ -164,18 +158,12 @@ pub trait SubtitleDecoder {
   /// Submits a compressed subtitle packet.
   fn send_packet(
     &mut self,
-    packet: &SubtitlePacket<
-      <Self::Adapter as SubtitleAdapter>::PacketExtra,
-      Self::Buffer,
-    >,
+    packet: &SubtitlePacket<<Self::Adapter as SubtitleAdapter>::PacketExtra, Self::Buffer>,
   ) -> Result<(), Self::Error>;
   /// Drains a decoded subtitle frame.
   fn receive_frame(
     &mut self,
-    dst: &mut SubtitleFrame<
-      <Self::Adapter as SubtitleAdapter>::FrameExtra,
-      Self::Buffer,
-    >,
+    dst: &mut SubtitleFrame<<Self::Adapter as SubtitleAdapter>::FrameExtra, Self::Buffer>,
   ) -> Result<(), Self::Error>;
   /// Signals EOF.
   fn send_eof(&mut self) -> Result<(), Self::Error>;
@@ -347,10 +335,7 @@ mod tests {
     fn send_packet(&mut self, _: &SubtitlePacket<(), &'static [u8]>) -> Result<(), LoopError> {
       Ok(())
     }
-    fn receive_frame(
-      &mut self,
-      _: &mut SubtitleFrame<(), &'static [u8]>,
-    ) -> Result<(), LoopError> {
+    fn receive_frame(&mut self, _: &mut SubtitleFrame<(), &'static [u8]>) -> Result<(), LoopError> {
       Err(LoopError)
     }
     fn send_eof(&mut self) -> Result<(), LoopError> {

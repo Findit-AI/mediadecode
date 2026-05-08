@@ -61,10 +61,7 @@ impl VideoStreamDecoder for VideoStream {
   fn send_packet(&mut self, _: &VideoPacket<(), &'static [u8]>) -> Result<(), Eof> {
     Ok(())
   }
-  fn receive_frame(
-    &mut self,
-    _: &mut VideoFrame<u32, (), &'static [u8]>,
-  ) -> Result<(), Eof> {
+  fn receive_frame(&mut self, _: &mut VideoFrame<u32, (), &'static [u8]>) -> Result<(), Eof> {
     Err(Eof)
   }
   fn send_eof(&mut self) -> Result<(), Eof> {
@@ -114,10 +111,7 @@ impl AudioStreamDecoder for AudioStream {
   fn send_packet(&mut self, _: &AudioPacket<(), &'static [u8]>) -> Result<(), Eof> {
     Ok(())
   }
-  fn receive_frame(
-    &mut self,
-    _: &mut AudioFrame<u32, u32, (), &'static [u8]>,
-  ) -> Result<(), Eof> {
+  fn receive_frame(&mut self, _: &mut AudioFrame<u32, u32, (), &'static [u8]>) -> Result<(), Eof> {
     Err(Eof)
   }
   fn send_eof(&mut self) -> Result<(), Eof> {
@@ -232,8 +226,7 @@ fn video_source_round_trip() {
     Plane::new(&b""[..], 0),
     Plane::new(&b""[..], 0),
   ];
-  let mut dst: VideoFrame<u32, (), &'static [u8]> =
-    VideoFrame::new(64, 64, 0u32, planes, 1, ());
+  let mut dst: VideoFrame<u32, (), &'static [u8]> = VideoFrame::new(64, 64, 0u32, planes, 1, ());
   assert!(src.decode_frame(0, &mut dst).is_err());
 }
 

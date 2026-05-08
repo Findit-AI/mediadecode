@@ -908,7 +908,11 @@ mod tests {
       PixelFormat::Vulkan,
     ];
     for fmt in all {
-      assert_eq!(PixelFormat::from_u32(fmt.to_u32()), fmt, "round-trip failed for {fmt:?}");
+      assert_eq!(
+        PixelFormat::from_u32(fmt.to_u32()),
+        fmt,
+        "round-trip failed for {fmt:?}"
+      );
     }
   }
 

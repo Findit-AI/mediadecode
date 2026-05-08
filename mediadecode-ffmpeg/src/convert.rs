@@ -180,11 +180,17 @@ pub unsafe fn av_frame_to_video_frame(
   // for their HW-format-specific dispatch tables.
   let unified_pix_fmt = pix_fmt.into_mediadecode();
 
-  let mut out =
-    VideoFrame::new(width, height, unified_pix_fmt, planes_out, plane_count, extra)
-      .with_pts(pts)
-      .with_duration(duration)
-      .with_color(color);
+  let mut out = VideoFrame::new(
+    width,
+    height,
+    unified_pix_fmt,
+    planes_out,
+    plane_count,
+    extra,
+  )
+  .with_pts(pts)
+  .with_duration(duration)
+  .with_color(color);
   if let Some(r) = visible_rect {
     out = out.with_visible_rect(Some(r));
   }
