@@ -22,9 +22,8 @@ use mediadecode::{
 
 use crate::{
   FfmpegBuffer, boundary,
-  channel_layout::audio_channel_layout_from_ffmpeg,
   extras::{AudioFrameExtra, PictureType, SideDataEntry, SubtitleFrameExtra, VideoFrameExtra},
-  frame::{is_supported_cpu_pix_fmt, plane_height_for},
+  frame::{is_supported_cpu_pix_fmt, plane_height_for, plane_row_bytes_for},
   sample_format::SampleFormat,
 };
 
@@ -126,12 +125,28 @@ pub unsafe fn av_frame_to_video_frame(
   if av_frame.is_null() {
     return Err(ConvertError::NullFrame);
   }
-  // SAFETY: Caller guarantees liveness for the duration of the call.
-  let frame = unsafe { &*av_frame };
+  // We deliberately never form `&*av_frame` — `AVFrame` contains
+  // bindgen-enum fields (`pict_type`, `color_primaries`, `colorspace`,
+  // `color_trc`, `color_range`, `chroma_location`, and an embedded
+  // `AVChannelLayout` whose `order` is also enum-typed). If FFmpeg
+  // (or a hostile decoder) writes a value outside our bindgen's
+  // discriminant set, the `&AVFrame` reference itself would be
+  // immediate UB before any field access. Working through the raw
+  // pointer with field-by-field reads (and `addr_of!` for the
+  // enum-typed fields) sidesteps this whole class.
 
-  let pix_fmt = boundary::from_av_pixel_format(frame.format);
-  let width = frame.width.max(0) as u32;
-  let height = frame.height.max(0) as u32;
+  // Non-enum primitives are safe to read via `(*av_frame).field`
+  // because validity for `i32`/`i64`/pointer types is just
+  // "initialized bytes"; the surrounding struct's enum fields don't
+  // contaminate this read.
+  let format_raw = unsafe { (*av_frame).format };
+  let width_raw = unsafe { (*av_frame).width };
+  let height_raw = unsafe { (*av_frame).height };
+  let pts_raw = unsafe { (*av_frame).pts };
+  let duration_raw = unsafe { (*av_frame).duration };
+  let pix_fmt = boundary::from_av_pixel_format(format_raw);
+  let width = width_raw.max(0) as u32;
+  let height = height_raw.max(0) as u32;
 
   // Build planes. We support the closed CPU-format set for which we
   // know the per-plane height (NV*, P0xx/P2xx/P4xx). Unknown formats
@@ -149,7 +164,9 @@ pub unsafe fn av_frame_to_video_frame(
   let mut plane_count: u8 = 0;
 
   for plane_idx in 0..4 {
-    let linesize = frame.linesize[plane_idx];
+    // Read per-plane fields through the raw pointer (no `&AVFrame`
+    // formed). `linesize` is `[c_int; 8]` and `data` is `[*mut u8; 8]`.
+    let linesize = unsafe { (*av_frame).linesize[plane_idx] };
     if linesize <= 0 {
       // Either we ran past the active plane count (linesize == 0) or
       // the frame uses negative-stride vertical-flip (which our safe
@@ -159,61 +176,115 @@ pub unsafe fn av_frame_to_video_frame(
       }
       return Err(ConvertError::InvalidPlaneLayout { plane: plane_idx });
     }
-    let data_ptr = frame.data[plane_idx];
+    let data_ptr = unsafe { (*av_frame).data[plane_idx] };
     if data_ptr.is_null() {
       return Err(ConvertError::InvalidPlaneLayout { plane: plane_idx });
     }
     let plane_h = plane_height_for(pix_fmt, plane_idx, height as usize)
       .ok_or(ConvertError::InvalidPlaneLayout { plane: plane_idx })?;
-    let plane_bytes = (linesize as usize)
-      .checked_mul(plane_h)
+    let row_bytes = plane_row_bytes_for(pix_fmt, plane_idx, width as usize)
       .ok_or(ConvertError::InvalidPlaneLayout { plane: plane_idx })?;
+    if row_bytes > linesize as usize {
+      return Err(ConvertError::InvalidPlaneLayout { plane: plane_idx });
+    }
+    // Safe-API stance for stride padding:
+    //
+    // Each row in the AVBufferRef is `linesize` bytes wide but only the
+    // first `row_bytes` of them are guaranteed-initialized (the
+    // codec's actual output). The remaining `linesize - row_bytes`
+    // bytes per row are FFmpeg-allocator scratch — `av_malloc`'d, not
+    // necessarily written by the decoder. Exposing those bytes as
+    // part of an `&[u8]` slice is UB even if no consumer reads them.
+    //
+    // - When `linesize == row_bytes` (no padding), zero-copy: refcount
+    //   the AVBufferRef and expose the full plane.
+    // - When `linesize > row_bytes`, we copy each row tightly into a
+    //   fresh AVBufferRef and expose that — `stride` becomes
+    //   `row_bytes` and the buffer's length is `row_bytes * plane_h`
+    //   with every byte initialized.
+    let (view, exported_stride) = if (linesize as usize) == row_bytes {
+      let plane_bytes = (plane_h)
+        .checked_mul(linesize as usize)
+        .ok_or(ConvertError::InvalidPlaneLayout { plane: plane_idx })?;
+      let buf = unsafe { find_backing_buffer(av_frame, data_ptr, plane_bytes) }
+        .ok_or(ConvertError::BufferAcquireFailed { plane: plane_idx })?;
+      // Plain address subtraction (avoids `offset_from`'s
+      // strict-provenance requirement; the pointers are independent
+      // C-side casts).
+      let offset = unsafe { (data_ptr as usize).wrapping_sub((*buf).data as usize) };
+      // SAFETY: `buf` is non-null and live; offset + plane_bytes <= buf.size
+      // by find_backing_buffer's check.
+      let view = unsafe { FfmpegBuffer::from_ref_view(buf, offset, plane_bytes) }
+        .ok_or(ConvertError::BufferAcquireFailed { plane: plane_idx })?;
+      (view, linesize as u32)
+    } else {
+      let total_bytes = row_bytes
+        .checked_mul(plane_h)
+        .ok_or(ConvertError::InvalidPlaneLayout { plane: plane_idx })?;
+      let mut packed: std::vec::Vec<u8> = std::vec::Vec::with_capacity(total_bytes);
+      for row_idx in 0..plane_h {
+        let row_offset = (row_idx)
+          .checked_mul(linesize as usize)
+          .ok_or(ConvertError::InvalidPlaneLayout { plane: plane_idx })?;
+        // SAFETY: `data_ptr` is valid for `plane_h * linesize` bytes
+        // per FFmpeg's contract; `row_offset + row_bytes <= plane_h *
+        // linesize` since `row_bytes <= linesize`. Each per-row slice
+        // is the part the decoder writes (initialized).
+        let row_slice =
+          unsafe { core::slice::from_raw_parts(data_ptr.add(row_offset) as *const u8, row_bytes) };
+        packed.extend_from_slice(row_slice);
+      }
+      let buf = FfmpegBuffer::copy_from_slice(&packed)
+        .ok_or(ConvertError::BufferAcquireFailed { plane: plane_idx })?;
+      (buf, row_bytes as u32)
+    };
 
-    // Locate the AVBufferRef that backs `data_ptr`. FFmpeg packs
-    // multi-plane frames into one or more AVBufferRefs; we scan the
-    // buf[] array and pick the one whose data range contains data_ptr.
-    let buf = find_backing_buffer(frame, data_ptr, plane_bytes)
-      .ok_or(ConvertError::BufferAcquireFailed { plane: plane_idx })?;
-    let offset =
-      // SAFETY: find_backing_buffer ensures data_ptr lies in [buf.data,
-      // buf.data + buf.size); the offset is therefore representable as
-      // usize.
-      unsafe { (data_ptr as *const u8).offset_from((*buf).data as *const u8) as usize };
-
-    // SAFETY: `buf` is non-null and live for the duration of the call;
-    // offset + plane_bytes <= buf.size by find_backing_buffer's check.
-    let view = unsafe { FfmpegBuffer::from_ref_view(buf, offset, plane_bytes) }
-      .ok_or(ConvertError::BufferAcquireFailed { plane: plane_idx })?;
-
-    planes_out[plane_idx] = Plane::new(view, linesize as u32);
+    planes_out[plane_idx] = Plane::new(view, exported_stride);
     plane_count = (plane_idx + 1) as u8;
   }
 
   // pts / duration / time_base
-  let pts = if frame.pts != AV_NOPTS_VALUE {
-    Some(Timestamp::new(frame.pts, time_base))
+  let pts = if pts_raw != AV_NOPTS_VALUE {
+    Some(Timestamp::new(pts_raw, time_base))
   } else {
     None
   };
-  let duration = if frame.duration > 0 {
-    Some(Timestamp::new(frame.duration, time_base))
+  let duration = if duration_raw > 0 {
+    Some(Timestamp::new(duration_raw, time_base))
   } else {
     None
   };
 
   // Visible rect (FFmpeg crop).
-  let visible_rect = build_visible_rect(frame, width, height);
+  let visible_rect = unsafe { build_visible_rect(av_frame, width, height) };
 
-  // Color metadata (the universal cross-backend bits).
+  // Color metadata (the universal cross-backend bits). We read each
+  // bindgen enum-typed field through a raw `i32` window — even
+  // referencing an out-of-range enum value is UB before any cast can
+  // run, so we never let Rust assume the field actually inhabits the
+  // enum's discriminant set. FFmpeg version skew or a buggy decoder
+  // can put unknown values into these fields.
+  use core::ptr::{addr_of, read_unaligned};
+  // SAFETY: `av_frame` points at a live AVFrame; `addr_of!` computes
+  // the address without forming a reference, and `read_unaligned::<i32>`
+  // is sound because each of these enum types has the layout of
+  // `c_int` (i32) per FFmpeg's bindgen output.
+  let color_primaries_raw =
+    unsafe { read_unaligned(addr_of!((*av_frame).color_primaries) as *const i32) };
+  let color_trc_raw = unsafe { read_unaligned(addr_of!((*av_frame).color_trc) as *const i32) };
+  let colorspace_raw = unsafe { read_unaligned(addr_of!((*av_frame).colorspace) as *const i32) };
+  let color_range_raw = unsafe { read_unaligned(addr_of!((*av_frame).color_range) as *const i32) };
+  let chroma_location_raw =
+    unsafe { read_unaligned(addr_of!((*av_frame).chroma_location) as *const i32) };
   let color = ColorInfo::UNSPECIFIED
-    .with_primaries(map_primaries(frame.color_primaries as i32))
-    .with_transfer(map_transfer(frame.color_trc as i32))
-    .with_matrix(map_matrix(frame.colorspace as i32))
-    .with_range(map_range(frame.color_range as i32))
-    .with_chroma_location(map_chroma_loc(frame.chroma_location as i32));
+    .with_primaries(map_primaries(color_primaries_raw))
+    .with_transfer(map_transfer(color_trc_raw))
+    .with_matrix(map_matrix(colorspace_raw))
+    .with_range(map_range(color_range_raw))
+    .with_chroma_location(map_chroma_loc(chroma_location_raw));
 
   // Backend-specific extras.
-  let extra = build_video_frame_extra(frame);
+  let extra = unsafe { build_video_frame_extra(av_frame) };
 
   // pix_fmt is already mediadecode::PixelFormat thanks to the boundary
   // function above, so we just pass it through.
@@ -249,11 +320,16 @@ fn plane_placeholder() -> Result<Plane<FfmpegBuffer>, ConvertError> {
   Ok(Plane::new(buf, 0))
 }
 
-fn build_visible_rect(frame: &AVFrame, width: u32, height: u32) -> Option<Rect> {
-  let crop_left = frame.crop_left as u32;
-  let crop_top = frame.crop_top as u32;
-  let crop_right = frame.crop_right as u32;
-  let crop_bottom = frame.crop_bottom as u32;
+/// # Safety
+/// `av_frame` must be a live `*const AVFrame` for the duration of this
+/// call. The function reads only `crop_*` fields through the raw
+/// pointer — it never forms `&AVFrame`, so unrelated invalid enum
+/// fields elsewhere in the struct don't matter.
+unsafe fn build_visible_rect(av_frame: *const AVFrame, width: u32, height: u32) -> Option<Rect> {
+  let crop_left = unsafe { (*av_frame).crop_left } as u32;
+  let crop_top = unsafe { (*av_frame).crop_top } as u32;
+  let crop_right = unsafe { (*av_frame).crop_right } as u32;
+  let crop_bottom = unsafe { (*av_frame).crop_bottom } as u32;
   if crop_left == 0 && crop_top == 0 && crop_right == 0 && crop_bottom == 0 {
     return None;
   }
@@ -264,54 +340,72 @@ fn build_visible_rect(frame: &AVFrame, width: u32, height: u32) -> Option<Rect> 
   Some(Rect::new(x, y, w, h))
 }
 
-fn build_video_frame_extra(frame: &AVFrame) -> VideoFrameExtra {
+/// # Safety
+/// `av_frame` must be a live `*const AVFrame` for the duration of this
+/// call. Reads each individual field through the raw pointer; never
+/// forms a `&AVFrame` reference.
+unsafe fn build_video_frame_extra(av_frame: *const AVFrame) -> VideoFrameExtra {
   let mut out = VideoFrameExtra::default();
   // SAR.
-  let sar_num = frame.sample_aspect_ratio.num;
-  let sar_den = frame.sample_aspect_ratio.den;
+  let sar_num = unsafe { (*av_frame).sample_aspect_ratio.num };
+  let sar_den = unsafe { (*av_frame).sample_aspect_ratio.den };
   if sar_num > 0 && sar_den > 0 && (sar_num != 1 || sar_den != 1) {
     out.sample_aspect_ratio = Some((sar_num as u32, sar_den as u32));
   }
-  // Picture type.
-  out.picture_type = map_picture_type(frame.pict_type);
+  // Picture type — read raw to avoid bindgen-enum UB if FFmpeg writes
+  // an out-of-range value (version skew / hostile decoder).
+  use core::ptr::{addr_of, read_unaligned};
+  // SAFETY: `av_frame` is live; reading `pict_type` as `i32` matches
+  // the bindgen enum's underlying `c_int` storage.
+  let pict_type_raw = unsafe { read_unaligned(addr_of!((*av_frame).pict_type) as *const i32) };
+  out.picture_type = map_picture_type_raw(pict_type_raw);
   // Key frame and interlace flags. AVFrame.flags has dedicated bits
   // for these in recent FFmpeg; the deprecated fields (key_frame,
   // interlaced_frame, top_field_first) still mirror them.
-  out.key_frame = frame.flags & ffmpeg_next::ffi::AV_FRAME_FLAG_KEY != 0;
-  out.interlaced = frame.flags & ffmpeg_next::ffi::AV_FRAME_FLAG_INTERLACED != 0;
-  out.top_field_first = frame.flags & ffmpeg_next::ffi::AV_FRAME_FLAG_TOP_FIELD_FIRST != 0;
+  let flags = unsafe { (*av_frame).flags };
+  out.key_frame = flags & ffmpeg_next::ffi::AV_FRAME_FLAG_KEY != 0;
+  out.interlaced = flags & ffmpeg_next::ffi::AV_FRAME_FLAG_INTERLACED != 0;
+  out.top_field_first = flags & ffmpeg_next::ffi::AV_FRAME_FLAG_TOP_FIELD_FIRST != 0;
   // Best-effort timestamp.
-  if frame.best_effort_timestamp != AV_NOPTS_VALUE {
-    out.best_effort_timestamp = Some(frame.best_effort_timestamp);
+  let bet = unsafe { (*av_frame).best_effort_timestamp };
+  if bet != AV_NOPTS_VALUE {
+    out.best_effort_timestamp = Some(bet);
   }
-  // Side data — passthrough as raw bytes. Structured parsing for the
-  // well-known HDR / timecode entries is left for downstream consumers
-  // (ffmpeg-next exposes the raw bytes in `side_data[i]`); a future
-  // commit can add `mastering_display` / `content_light_level` /
-  // `smpte_timecode` parsing once we wire up the FFmpeg metadata
-  // structs.
-  out.side_data = unsafe { collect_side_data(frame) };
+  // Side data — passthrough as raw bytes.
+  out.side_data = unsafe { collect_side_data(av_frame) };
   out
 }
 
-unsafe fn collect_side_data(frame: &AVFrame) -> std::vec::Vec<SideDataEntry> {
-  let count = frame.nb_side_data as usize;
-  if count == 0 || frame.side_data.is_null() {
+/// # Safety
+/// `av_frame` must be a live `*const AVFrame`. The function reads
+/// `nb_side_data` and `side_data[]` through the raw pointer; each
+/// `AVFrameSideData.type_` is read raw (it's a bindgen enum), and
+/// each `data` payload is bounds-checked before slicing.
+unsafe fn collect_side_data(av_frame: *const AVFrame) -> std::vec::Vec<SideDataEntry> {
+  let count = unsafe { (*av_frame).nb_side_data } as usize;
+  let side_data = unsafe { (*av_frame).side_data };
+  if count == 0 || side_data.is_null() {
     return Vec::new();
   }
+  use core::ptr::{addr_of, read_unaligned};
   let mut out = Vec::with_capacity(count);
   for i in 0..count {
-    let sd = unsafe { *frame.side_data.add(i) };
+    let sd = unsafe { *side_data.add(i) };
     if sd.is_null() {
       continue;
     }
-    let sd_ref = unsafe { &*sd };
-    let kind = sd_ref.type_ as i32;
-    let size = sd_ref.size;
-    let data_slice = if size == 0 || sd_ref.data.is_null() {
+    // `AVFrameSideData.type_` is `AVFrameSideDataType` — bindgen
+    // enum. Read raw to avoid forming an invalid value if FFmpeg
+    // writes an unknown discriminant (version skew).
+    let kind = unsafe { read_unaligned(addr_of!((*sd).type_) as *const i32) };
+    let size = unsafe { (*sd).size };
+    let data_ptr = unsafe { (*sd).data };
+    let data_slice = if size == 0 || data_ptr.is_null() {
       Vec::new()
     } else {
-      unsafe { core::slice::from_raw_parts(sd_ref.data, size).to_vec() }
+      // SAFETY: `data_ptr` is documented as valid for `size` bytes
+      // per FFmpeg's AVFrameSideData contract.
+      unsafe { core::slice::from_raw_parts(data_ptr, size).to_vec() }
     };
     out.push(SideDataEntry {
       kind,
@@ -321,15 +415,22 @@ unsafe fn collect_side_data(frame: &AVFrame) -> std::vec::Vec<SideDataEntry> {
   out
 }
 
-/// Locate the `AVBufferRef` in `frame.buf[]` that backs `data_ptr`,
-/// confirming the requested `bytes` fit inside the buffer.
-fn find_backing_buffer(
-  frame: &AVFrame,
+/// Locate the `AVBufferRef` in `(*av_frame).buf[]` that backs
+/// `data_ptr`, confirming the requested `bytes` fit inside the buffer.
+/// Returns `None` on no match, null/empty `buf` entries, or any
+/// arithmetic that would overflow `usize`.
+///
+/// # Safety
+/// `av_frame` must be a live `*const AVFrame`. Reads `buf[]` (an
+/// array of pointers — no bindgen-enum validity hazards).
+unsafe fn find_backing_buffer(
+  av_frame: *const AVFrame,
   data_ptr: *const u8,
   bytes: usize,
 ) -> Option<*mut ffmpeg_next::ffi::AVBufferRef> {
-  for i in 0..frame.buf.len() {
-    let buf = frame.buf[i];
+  let buf_array_len = unsafe { (*av_frame).buf.len() };
+  for i in 0..buf_array_len {
+    let buf = unsafe { (*av_frame).buf[i] };
     if buf.is_null() {
       continue;
     }
@@ -339,9 +440,14 @@ fn find_backing_buffer(
       continue;
     }
     let start = buf_data as usize;
-    let end = start + buf_size;
+    let Some(end) = start.checked_add(buf_size) else {
+      continue;
+    };
     let dp = data_ptr as usize;
-    if dp >= start && dp + bytes <= end {
+    let Some(dp_end) = dp.checked_add(bytes) else {
+      continue;
+    };
+    if dp >= start && dp_end <= end {
       return Some(buf);
     }
   }
@@ -460,31 +566,80 @@ pub unsafe fn av_frame_to_audio_frame(
   if av_frame.is_null() {
     return Err(ConvertError::NullFrame);
   }
-  // SAFETY: caller upholds liveness for the duration of the call.
-  let frame = unsafe { &*av_frame };
+  // Same stance as `av_frame_to_video_frame`: never form `&AVFrame`.
+  // Read every field through the raw pointer; for `ch_layout` (which
+  // contains an `order: AVChannelOrder` enum) we hand the raw pointer
+  // straight into `channel_layout::audio_channel_layout_from_raw_ptr`,
+  // which validates `order` as `i32` before constructing any
+  // `AVChannelOrder` value.
+  let format_raw = unsafe { (*av_frame).format };
+  let sample_rate_raw = unsafe { (*av_frame).sample_rate };
+  let nb_samples_raw = unsafe { (*av_frame).nb_samples };
+  let pts_raw = unsafe { (*av_frame).pts };
+  let duration_raw = unsafe { (*av_frame).duration };
+  let bet_raw = unsafe { (*av_frame).best_effort_timestamp };
 
-  let sample_format = SampleFormat::from_raw(frame.format);
-  let sample_rate = frame.sample_rate.max(0) as u32;
-  let nb_samples = frame.nb_samples.max(0) as u32;
+  let sample_format = SampleFormat::from_raw(format_raw);
+  let sample_rate = sample_rate_raw.max(0) as u32;
+  let nb_samples = nb_samples_raw.max(0) as u32;
 
-  // ffmpeg_next::ChannelLayout is a #[repr(transparent)] tuple struct
-  // around AVChannelLayout. AVChannelLayout is Copy, so we can wrap a
-  // copy of the embedded layout for the boundary helper without
-  // disturbing the source frame.
-  let layout = ffmpeg_next::ChannelLayout(frame.ch_layout);
-  let channel_layout = audio_channel_layout_from_ffmpeg(&layout);
+  // SAFETY: `av_frame` is a live `*const AVFrame`; passing the
+  // address of the embedded ch_layout as `*const AVChannelLayout`
+  // is sound because `addr_of!` doesn't form a reference.
+  use core::ptr::addr_of;
+  let ch_layout_ptr =
+    unsafe { addr_of!((*av_frame).ch_layout) } as *const ffmpeg_next::ffi::AVChannelLayout;
+  let channel_layout =
+    unsafe { crate::channel_layout::audio_channel_layout_from_raw_ptr(ch_layout_ptr) };
   let channel_count_full = channel_layout.channels();
   let channel_count = channel_count_full.min(255) as u8;
 
-  // Plane count: 1 for packed, channel_count for planar (capped at 8).
+  // Plane count: 1 for packed, channel_count for planar.
   let is_planar = sample_format.is_planar();
   let plane_count_full = if is_planar { channel_count as usize } else { 1 };
-  let plane_count = plane_count_full.min(8) as u8;
+  // mediadecode's `AudioFrame` carries up to 8 plane slots
+  // (matching `AV_NUM_DATA_POINTERS`). Planar audio with more than
+  // 8 channels uses `AVFrame.extended_data[]` / `extended_buf[]`,
+  // which we don't yet plumb through. Refuse the frame rather than
+  // silently truncating to the first 8 channels and returning an
+  // `AudioFrame` whose advertised `channel_count` exceeds its
+  // populated plane count.
+  if plane_count_full > 8 {
+    return Err(ConvertError::InvalidPlaneLayout { plane: 8 });
+  }
+  let plane_count = plane_count_full as u8;
 
   // Per-plane size in bytes. For audio, FFmpeg only sets `linesize[0]`;
   // every planar plane has the same size, every packed buffer is the
-  // total size for all channels.
-  let plane_bytes = frame.linesize[0].max(0) as usize;
+  // total size for all channels. Validate against the format's
+  // expected minimum so a hostile/buggy decoder can't smuggle a
+  // shrunk linesize past us (which would let consumers read past
+  // valid bytes when they trust `nb_samples`).
+  let linesize0 = unsafe { (*av_frame).linesize[0] };
+  if nb_samples > 0 && linesize0 <= 0 {
+    return Err(ConvertError::InvalidPlaneLayout { plane: 0 });
+  }
+  let plane_bytes = linesize0.max(0) as usize;
+  if nb_samples > 0 {
+    let bytes_per_sample = sample_format
+      .bytes_per_sample()
+      .ok_or(ConvertError::InvalidPlaneLayout { plane: 0 })? as usize;
+    let expected_per_plane = if is_planar {
+      // Planar: each plane carries `nb_samples * bytes_per_sample`.
+      (nb_samples as usize)
+        .checked_mul(bytes_per_sample)
+        .ok_or(ConvertError::InvalidPlaneLayout { plane: 0 })?
+    } else {
+      // Packed: the single plane interleaves all channels.
+      (nb_samples as usize)
+        .checked_mul(bytes_per_sample)
+        .and_then(|x| x.checked_mul(channel_count.max(1) as usize))
+        .ok_or(ConvertError::InvalidPlaneLayout { plane: 0 })?
+    };
+    if plane_bytes < expected_per_plane {
+      return Err(ConvertError::InvalidPlaneLayout { plane: 0 });
+    }
+  }
 
   let mut planes_out: [Plane<FfmpegBuffer>; 8] = [
     audio_plane_placeholder()?,
@@ -498,18 +653,20 @@ pub unsafe fn av_frame_to_audio_frame(
   ];
 
   for plane_idx in 0..plane_count as usize {
-    let data_ptr = frame.data[plane_idx];
+    let data_ptr = unsafe { (*av_frame).data[plane_idx] };
     if data_ptr.is_null() {
-      // Decoder produced fewer planes than the channel count claimed
-      // (rare, but possible with some codecs at EOF). Stop here.
-      break;
+      // A null plane in a planar layout (or the sole plane in a
+      // packed layout) means the decoder produced an incomplete
+      // frame — surface as an error rather than returning a frame
+      // whose `planes()` exposes empty placeholder channels for
+      // the missing data.
+      return Err(ConvertError::InvalidPlaneLayout { plane: plane_idx });
     }
-    let buf = find_audio_backing_buffer(frame, data_ptr, plane_bytes)
+    let buf = unsafe { find_audio_backing_buffer(av_frame, data_ptr, plane_bytes) }
       .ok_or(ConvertError::BufferAcquireFailed { plane: plane_idx })?;
-    let offset =
-      // SAFETY: find_audio_backing_buffer guarantees data_ptr lies in
-      // [buf.data, buf.data + buf.size); the offset fits in usize.
-      unsafe { (data_ptr as *const u8).offset_from((*buf).data as *const u8) as usize };
+    // See `av_frame_to_video_frame` for the rationale on plain
+    // address subtraction over `offset_from`.
+    let offset = unsafe { (data_ptr as usize).wrapping_sub((*buf).data as usize) };
     // SAFETY: `buf` is non-null and live; offset + plane_bytes <= buf.size
     // by find_audio_backing_buffer's bounds check.
     let view = unsafe { FfmpegBuffer::from_ref_view(buf, offset, plane_bytes) }
@@ -517,24 +674,25 @@ pub unsafe fn av_frame_to_audio_frame(
     planes_out[plane_idx] = Plane::new(view, plane_bytes as u32);
   }
 
-  let pts = if frame.pts != AV_NOPTS_VALUE {
-    Some(Timestamp::new(frame.pts, time_base))
+  let pts = if pts_raw != AV_NOPTS_VALUE {
+    Some(Timestamp::new(pts_raw, time_base))
   } else {
     None
   };
-  let duration = if frame.duration > 0 {
-    Some(Timestamp::new(frame.duration, time_base))
+  let duration = if duration_raw > 0 {
+    Some(Timestamp::new(duration_raw, time_base))
   } else {
     None
   };
 
   let mut extra = AudioFrameExtra::default();
-  if frame.best_effort_timestamp != AV_NOPTS_VALUE {
-    extra.best_effort_timestamp = Some(frame.best_effort_timestamp);
+  if bet_raw != AV_NOPTS_VALUE {
+    extra.best_effort_timestamp = Some(bet_raw);
   }
   // SAFETY: caller upholds liveness for the duration of the call;
-  // collect_side_data only reads through valid AVFrameSideData entries.
-  extra.side_data = unsafe { collect_side_data(frame) };
+  // collect_side_data reads enum-typed `type_` raw and bounds-checks
+  // each entry's data slice.
+  extra.side_data = unsafe { collect_side_data(av_frame) };
 
   Ok(
     AudioFrame::new(
@@ -563,16 +721,20 @@ fn audio_plane_placeholder() -> Result<Plane<FfmpegBuffer>, ConvertError> {
   Ok(Plane::new(buf, 0))
 }
 
-fn find_audio_backing_buffer(
-  frame: &AVFrame,
+/// # Safety
+/// `av_frame` must be a live `*const AVFrame`.
+unsafe fn find_audio_backing_buffer(
+  av_frame: *const AVFrame,
   data_ptr: *const u8,
   bytes: usize,
 ) -> Option<*mut ffmpeg_next::ffi::AVBufferRef> {
   // Audio frames pack each plane into a separate AVBufferRef in buf[].
   // Same scan as the video path — finds whichever buffer's data range
-  // contains data_ptr.
-  for i in 0..frame.buf.len() {
-    let buf = frame.buf[i];
+  // contains data_ptr. Overflow-safe arithmetic per
+  // `find_backing_buffer`'s rationale.
+  let buf_array_len = unsafe { (*av_frame).buf.len() };
+  for i in 0..buf_array_len {
+    let buf = unsafe { (*av_frame).buf[i] };
     if buf.is_null() {
       continue;
     }
@@ -582,9 +744,14 @@ fn find_audio_backing_buffer(
       continue;
     }
     let start = buf_data as usize;
-    let end = start + buf_size;
+    let Some(end) = start.checked_add(buf_size) else {
+      continue;
+    };
     let dp = data_ptr as usize;
-    if dp >= start && dp + bytes <= end {
+    let Some(dp_end) = dp.checked_add(bytes) else {
+      continue;
+    };
+    if dp >= start && dp_end <= end {
       return Some(buf);
     }
   }
@@ -621,76 +788,104 @@ pub unsafe fn av_subtitle_to_subtitle_frame(
   if av_subtitle.is_null() {
     return Err(ConvertError::NullFrame);
   }
-  // SAFETY: caller upholds liveness.
-  let sub = unsafe { &*av_subtitle };
+  // Same stance as `av_frame_to_video_frame`: never form `&AVSubtitle`
+  // or `&AVSubtitleRect` (both contain `type_: AVSubtitleType` enum
+  // fields). Read every field through the raw pointer.
 
   let mut text_chunks: std::vec::Vec<u8> = std::vec::Vec::new();
   let mut bitmap_regions: std::vec::Vec<mediadecode::subtitle::BitmapRegion<FfmpegBuffer>> =
     std::vec::Vec::new();
 
-  let count = sub.num_rects as usize;
+  let count = unsafe { (*av_subtitle).num_rects } as usize;
+  let rects_ptr = unsafe { (*av_subtitle).rects };
+  // Defensive: `num_rects > 0` with `rects == null` would be a malformed
+  // AVSubtitle, but a hostile decoder could produce one — bail rather
+  // than dereferencing.
+  if count > 0 && rects_ptr.is_null() {
+    return Err(ConvertError::NullFrame);
+  }
+  use core::ptr::{addr_of, read_unaligned};
+  use ffmpeg_next::ffi::AVSubtitleType;
+  let text_kind = AVSubtitleType::SUBTITLE_TEXT as i32;
+  let ass_kind = AVSubtitleType::SUBTITLE_ASS as i32;
+  let bitmap_kind = AVSubtitleType::SUBTITLE_BITMAP as i32;
   for i in 0..count {
-    if sub.rects.is_null() {
-      break;
-    }
-    // SAFETY: sub.rects points to num_rects valid entries per FFmpeg's
-    // contract.
-    let rect_ptr = unsafe { *sub.rects.add(i) };
+    // SAFETY: rects_ptr is non-null (checked above) and points to
+    // num_rects valid `*mut AVSubtitleRect` entries per FFmpeg's
+    // contract; `i < count == num_rects`, so the offset is in-bounds.
+    let rect_ptr = unsafe { *rects_ptr.add(i) };
     if rect_ptr.is_null() {
       continue;
     }
-    let rect = unsafe { &*rect_ptr };
+    // Read `type_` raw — avoid forming `&AVSubtitleRect` (which
+    // would require type_ to be a valid AVSubtitleType variant).
+    // SAFETY: `rect_ptr` is a live `*mut AVSubtitleRect`; `addr_of!`
+    // computes the field address without forming a reference;
+    // reading as `i32` matches the bindgen enum's `c_int` storage.
+    let rect_type_raw = unsafe { read_unaligned(addr_of!((*rect_ptr).type_) as *const i32) };
+    // Pre-read primitive fields we'll use later (no `&AVSubtitleRect`
+    // ever formed).
+    let rect_text_ptr = unsafe { (*rect_ptr).text };
+    let rect_ass_ptr = unsafe { (*rect_ptr).ass };
+    let rect_data0_ptr = unsafe { (*rect_ptr).data[0] };
+    let rect_data1_ptr = unsafe { (*rect_ptr).data[1] };
+    let rect_linesize0 = unsafe { (*rect_ptr).linesize[0] };
+    let rect_w = unsafe { (*rect_ptr).w };
+    let rect_h = unsafe { (*rect_ptr).h };
+    let rect_x = unsafe { (*rect_ptr).x };
+    let rect_y = unsafe { (*rect_ptr).y };
 
-    use ffmpeg_next::ffi::AVSubtitleType::*;
-    match rect.type_ {
-      SUBTITLE_TEXT if !rect.text.is_null() => {
-        // SAFETY: `rect.text` is documented as a 0-terminated UTF-8
+    match rect_type_raw {
+      x if x == text_kind && !rect_text_ptr.is_null() => {
+        // SAFETY: `text` is documented as a 0-terminated UTF-8
         // string, owned by FFmpeg for the lifetime of the AVSubtitle.
-        let bytes = unsafe { core::ffi::CStr::from_ptr(rect.text) }.to_bytes();
+        let bytes = unsafe { core::ffi::CStr::from_ptr(rect_text_ptr) }.to_bytes();
         if !text_chunks.is_empty() {
           text_chunks.push(b'\n');
         }
         text_chunks.extend_from_slice(bytes);
       }
-      SUBTITLE_ASS if !rect.ass.is_null() => {
-        // SAFETY: `rect.ass` is documented as 0-terminated UTF-8.
-        let bytes = unsafe { core::ffi::CStr::from_ptr(rect.ass) }.to_bytes();
+      x if x == ass_kind && !rect_ass_ptr.is_null() => {
+        // SAFETY: `ass` is documented as 0-terminated UTF-8.
+        let bytes = unsafe { core::ffi::CStr::from_ptr(rect_ass_ptr) }.to_bytes();
         if !text_chunks.is_empty() {
           text_chunks.push(b'\n');
         }
         text_chunks.extend_from_slice(bytes);
       }
-      SUBTITLE_BITMAP => {
+      x if x == bitmap_kind => {
         // Bitmap region. data[0] = paletted indices, data[1] = RGBA
-        // palette (256 entries × 4 bytes = 1024 bytes max). Both are
+        // palette (256 entries × 4 bytes = 1024 bytes). Both are
         // owned by FFmpeg and not refcounted; copy into fresh buffers.
-        let w = rect.w.max(0) as u32;
-        let h = rect.h.max(0) as u32;
-        let stride = rect.linesize[0].max(0) as u32;
-        if rect.data[0].is_null() || stride == 0 || h == 0 {
+        let w = rect_w.max(0) as u32;
+        let h = rect_h.max(0) as u32;
+        let stride = rect_linesize0.max(0) as u32;
+        if rect_data0_ptr.is_null() || stride == 0 || h == 0 {
           continue;
         }
-        let data_len = (stride as usize).saturating_mul(h as usize);
-        // SAFETY: caller-validated AVSubtitleRect — data[0] is valid
-        // for `linesize[0] * h` bytes.
-        let data_slice = unsafe { core::slice::from_raw_parts(rect.data[0], data_len) };
+        // `checked_mul` so a corrupt rect can't drive
+        // `from_raw_parts` to an address-space-spanning length (UB
+        // even before any deref).
+        let data_len = (stride as usize)
+          .checked_mul(h as usize)
+          .ok_or(ConvertError::InvalidPlaneLayout { plane: 0 })?;
+        // SAFETY: data[0] is valid for `linesize[0] * h` bytes per
+        // FFmpeg's contract; the multiplication is checked above.
+        let data_slice = unsafe { core::slice::from_raw_parts(rect_data0_ptr, data_len) };
         let data_buf = FfmpegBuffer::copy_from_slice(data_slice)
           .ok_or(ConvertError::BufferAcquireFailed { plane: 0 })?;
-        // Palette: 256 RGBA entries (1024 bytes) per FFmpeg's contract;
-        // some encoders use fewer, but the buffer is always 1024 bytes
-        // wide. nb_colors tells us how many of those entries are used.
         let palette_len = 256 * 4;
-        let palette_buf = if rect.data[1].is_null() {
+        let palette_buf = if rect_data1_ptr.is_null() {
           FfmpegBuffer::copy_from_slice(&[])
             .ok_or(ConvertError::BufferAcquireFailed { plane: 1 })?
         } else {
           // SAFETY: palette buffer is 256*4 bytes per FFmpeg's contract.
-          let p = unsafe { core::slice::from_raw_parts(rect.data[1], palette_len) };
+          let p = unsafe { core::slice::from_raw_parts(rect_data1_ptr, palette_len) };
           FfmpegBuffer::copy_from_slice(p).ok_or(ConvertError::BufferAcquireFailed { plane: 1 })?
         };
         bitmap_regions.push(mediadecode::subtitle::BitmapRegion::new(
-          rect.x.max(0) as u32,
-          rect.y.max(0) as u32,
+          rect_x.max(0) as u32,
+          rect_y.max(0) as u32,
           w,
           h,
           stride,
@@ -723,29 +918,30 @@ pub unsafe fn av_subtitle_to_subtitle_frame(
     }
   };
 
-  let pts = if sub.pts != AV_NOPTS_VALUE {
-    Some(Timestamp::new(sub.pts, time_base))
+  let sub_pts = unsafe { (*av_subtitle).pts };
+  let pts = if sub_pts != AV_NOPTS_VALUE {
+    Some(Timestamp::new(sub_pts, time_base))
   } else {
     None
   };
 
   let extra = SubtitleFrameExtra {
-    start_display_time: sub.start_display_time,
-    end_display_time: sub.end_display_time,
+    start_display_time: unsafe { (*av_subtitle).start_display_time },
+    end_display_time: unsafe { (*av_subtitle).end_display_time },
   };
 
   Ok(SubtitleFrame::new(payload, extra).with_pts(pts))
 }
 
-fn map_picture_type(raw: AVPictureType) -> PictureType {
+fn map_picture_type_raw(raw: i32) -> PictureType {
   match raw {
-    AVPictureType::AV_PICTURE_TYPE_I => PictureType::I,
-    AVPictureType::AV_PICTURE_TYPE_P => PictureType::P,
-    AVPictureType::AV_PICTURE_TYPE_B => PictureType::B,
-    AVPictureType::AV_PICTURE_TYPE_S => PictureType::S,
-    AVPictureType::AV_PICTURE_TYPE_SI => PictureType::Si,
-    AVPictureType::AV_PICTURE_TYPE_SP => PictureType::Sp,
-    AVPictureType::AV_PICTURE_TYPE_BI => PictureType::Bi,
+    x if x == AVPictureType::AV_PICTURE_TYPE_I as i32 => PictureType::I,
+    x if x == AVPictureType::AV_PICTURE_TYPE_P as i32 => PictureType::P,
+    x if x == AVPictureType::AV_PICTURE_TYPE_B as i32 => PictureType::B,
+    x if x == AVPictureType::AV_PICTURE_TYPE_S as i32 => PictureType::S,
+    x if x == AVPictureType::AV_PICTURE_TYPE_SI as i32 => PictureType::Si,
+    x if x == AVPictureType::AV_PICTURE_TYPE_SP as i32 => PictureType::Sp,
+    x if x == AVPictureType::AV_PICTURE_TYPE_BI as i32 => PictureType::Bi,
     _ => PictureType::Unspecified,
   }
 }

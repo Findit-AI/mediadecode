@@ -20,7 +20,9 @@ use mediadecode::{
 
 use crate::{
   Error, Ffmpeg, FfmpegBuffer, boundary, convert,
+  decoder::build_codec_context,
   extras::{AudioFrameExtra, AudioPacketExtra},
+  frame::alloc_av_audio_frame,
   sample_format::SampleFormat,
 };
 
@@ -34,15 +36,17 @@ pub struct FfmpegAudioStreamDecoder {
 impl FfmpegAudioStreamDecoder {
   /// Opens an audio decoder for the given codec parameters.
   pub fn open(parameters: Parameters, time_base: Timebase) -> Result<Self, AudioDecodeError> {
-    let ctx = ffmpeg_next::codec::Context::from_parameters(parameters)
-      .map_err(|e| AudioDecodeError::Decode(Error::Ffmpeg(e)))?;
+    // Use the checked codec-context builder — `Context::from_parameters`
+    // is OOM-UB-prone (see `crate::decoder::build_codec_context`).
+    let ctx = build_codec_context(&parameters).map_err(AudioDecodeError::Decode)?;
     let decoder = ctx
       .decoder()
       .audio()
       .map_err(|e| AudioDecodeError::Decode(Error::Ffmpeg(e)))?;
+    let scratch = alloc_av_audio_frame().map_err(AudioDecodeError::Decode)?;
     Ok(Self {
       decoder,
-      scratch: frame::Audio::empty(),
+      scratch,
       time_base,
     })
   }

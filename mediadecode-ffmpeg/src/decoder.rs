@@ -1215,25 +1215,82 @@ unsafe fn transfer_hw_frame(
         errno: libc::EINVAL,
       });
     }
-    copy_frame_props_minimal(dst.as_inner_mut().as_mut_ptr(), src.as_ptr());
+    if let Err(e) = copy_frame_props_minimal(dst.as_inner_mut().as_mut_ptr(), src.as_ptr()) {
+      // Failed to propagate metadata. Reset the destination so the
+      // partial frame doesn't leak (its pixel buffers were attached
+      // by `av_hwframe_transfer_data` above) and surface as a
+      // backend failure — the probe path will advance to the next
+      // candidate; post-probe, the caller branches into SW fallback.
+      av_frame_unref(dst.as_inner_mut().as_mut_ptr());
+      return Err(e);
+    }
   }
   Ok(())
 }
 
-/// Bounded substitute for `av_frame_copy_props`. Copies only the scalar
-/// AVFrame fields the public `Frame` API needs from `src` to `dst` —
-/// today just `pts`. Skips every allocating field (`av_dict_copy` for
-/// `metadata`, `av_frame_new_side_data` + memcpy for each `side_data[i]`,
-/// `av_buffer_replace` for `opaque_ref` / `private_ref`) so the cost is
-/// O(1) per frame regardless of what the source attaches.
+/// Copies AVFrame metadata (timestamps, color metadata, crop rect,
+/// flags, side data, etc.) from the source HW frame to the destination
+/// CPU frame so the post-transfer frame surfaces the same metadata a
+/// SW-decoded frame would.
+///
+/// Defers to FFmpeg's `av_frame_copy_props`, which handles the per-
+/// `side_data[i]` allocation, dict copy, and refcounted buffer
+/// replacements internally. The cost is bounded by what the source
+/// frame attaches — typical HDR streams carry 1–3 side-data entries
+/// (mastering display, content light level, dolby/HDR10+ dynamic
+/// metadata) totalling a few hundred bytes, so per-frame allocation
+/// overhead stays negligible relative to the pixel data already
+/// transferred via `av_hwframe_transfer_data`.
 ///
 /// # Safety
-/// Both pointers must be valid `AVFrame` pointers we own; field
-/// projection touches only POD scalars, no enums or buffer refs.
-unsafe fn copy_frame_props_minimal(dst: *mut AVFrame, src: *const AVFrame) {
-  unsafe {
-    (*dst).pts = (*src).pts;
+/// Both pointers must be valid `AVFrame` pointers we own. We do not
+/// form `&AVFrame` — `av_frame_copy_props` operates on raw pointers
+/// directly.
+/// Sum the byte sizes of every entry in `(*frame).side_data[]`.
+/// Used by the probe replay queue's byte-cap accounting so a
+/// frame's deep-copied side-data is charged against
+/// `max_probe_pending_bytes` along with its pixel buffers.
+///
+/// # Safety
+/// `frame` must be a live `*const AVFrame`. Reads only `nb_side_data`,
+/// the `side_data` pointer array, and each `AVFrameSideData.size` —
+/// no `&AVFrame` reference is formed.
+unsafe fn sum_side_data_bytes(frame: *const AVFrame) -> usize {
+  let count = unsafe { (*frame).nb_side_data } as usize;
+  let arr = unsafe { (*frame).side_data };
+  if count == 0 || arr.is_null() {
+    return 0;
   }
+  let mut total: usize = 0;
+  for i in 0..count {
+    // SAFETY: `arr` points to `count` valid `*mut AVFrameSideData`
+    // entries per FFmpeg's contract.
+    let entry = unsafe { *arr.add(i) };
+    if entry.is_null() {
+      continue;
+    }
+    let sz = unsafe { (*entry).size };
+    total = total.saturating_add(sz);
+  }
+  total
+}
+
+unsafe fn copy_frame_props_minimal(
+  dst: *mut AVFrame,
+  src: *const AVFrame,
+) -> std::result::Result<(), ffmpeg_next::Error> {
+  // SAFETY: callers pass valid AVFrame pointers (one we own as `dst`,
+  // the source `src` from the HW decoder). `av_frame_copy_props`
+  // returns negative on OOM (per-side-data allocation) and leaves
+  // both frames unchanged. We propagate the error so the caller can
+  // decide whether to abort the probe candidate or surface a
+  // decoder failure rather than handing the consumer a frame whose
+  // HDR/timecode metadata silently disappeared.
+  let ret = unsafe { ffmpeg_next::ffi::av_frame_copy_props(dst, src) };
+  if ret < 0 {
+    return Err(ffmpeg_next::Error::from(ret));
+  }
+  Ok(())
 }
 
 /// `EAGAIN` and `EOF` are normal flow signals from `avcodec_receive_frame`
@@ -1280,7 +1337,7 @@ fn alloc_av_frame() -> std::result::Result<frame::Video, ffmpeg_next::Error> {
 /// skips that check and would feed a null pointer into FFmpeg under OOM —
 /// undefined behavior. This helper surfaces the failure as `ENOMEM` and
 /// frees the context if `parameters_to_context` itself errors.
-fn build_codec_context(parameters: &codec::Parameters) -> Result<Context> {
+pub(crate) fn build_codec_context(parameters: &codec::Parameters) -> Result<Context> {
   ensure_parameters_non_null(parameters)?;
   // SAFETY: avcodec_alloc_context3(NULL) returns a fresh AVCodecContext
   // or NULL on allocation failure.
@@ -1316,7 +1373,7 @@ fn build_codec_context(parameters: &codec::Parameters) -> Result<Context> {
 /// `owner: None`, severing any Rc link to the caller's demuxer (the
 /// reason we deep-clone in the first place — see Send safety in
 /// `VideoDecoder::open`).
-fn try_clone_parameters(
+pub(crate) fn try_clone_parameters(
   src: &codec::Parameters,
 ) -> std::result::Result<codec::Parameters, ffmpeg_next::Error> {
   // Reject a null inner pointer at the boundary; a deref inside
@@ -1599,11 +1656,23 @@ fn drain_into_pending(
             });
           }
         };
-        let new_total = pending_bytes.saturating_add(pixel_bytes);
+        // Account for side-data bytes that `av_frame_copy_props`
+        // will deep-copy from the source HW frame. HDR streams
+        // typically carry mastering display + content light level
+        // (~50 bytes) and dynamic HDR metadata (~few hundred bytes);
+        // pathological side-data could otherwise quietly bypass the
+        // pixel-data byte cap.
+        // SAFETY: hw_buf is a valid AVFrame; we read scalar fields
+        // and pointer arrays without forming a `&AVFrame`.
+        let side_data_bytes = unsafe { sum_side_data_bytes(hw_buf.as_ptr()) };
+        let new_total = pending_bytes
+          .saturating_add(pixel_bytes)
+          .saturating_add(side_data_bytes);
         if new_total > max_bytes {
           tracing::warn!(
             pending_bytes = *pending_bytes,
             pixel_bytes,
+            side_data_bytes,
             max_bytes,
             "hwdecode: queueing this frame would exceed byte cap; \
              failing candidate replay"
@@ -1613,11 +1682,15 @@ fn drain_into_pending(
             errno: libc::ENOMEM,
           });
         }
-        // Cap check passed — copy only the scalar AVFrame fields the
-        // public API needs. SAFETY: cpu and hw_buf are both valid
-        // AVFrames we own.
-        unsafe {
-          copy_frame_props_minimal(cpu.as_mut_ptr(), hw_buf.as_ptr());
+        // Cap check passed — copy AVFrame metadata. SAFETY: cpu and
+        // hw_buf are both valid AVFrames we own. On failure (OOM
+        // during side-data alloc) we propagate so the probe candidate
+        // is treated as failed rather than queueing a frame whose
+        // metadata silently disappeared.
+        if let Err(e) = unsafe { copy_frame_props_minimal(cpu.as_mut_ptr(), hw_buf.as_ptr()) } {
+          // `cpu` drops here, releasing its plane refcounts; the
+          // partial copy is not enqueued.
+          return Err(e);
         }
         *pending_bytes = new_total;
         pending.push_back(cpu);

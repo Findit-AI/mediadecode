@@ -61,6 +61,23 @@ pub enum Error {
     /// Replay them through a software decoder for non-seekable inputs.
     unconsumed_packets: Vec<Packet>,
   },
+
+  /// Surfaced by [`crate::FfmpegVideoStreamDecoder`] when a HW->SW
+  /// fallback attempt itself fails — e.g. the SW decoder failed to
+  /// open, EOF replay returned EAGAIN past the bounded retry, or the
+  /// per-frame replay queue exceeded its cap. The HW decoder has
+  /// already consumed `unconsumed_packets` from the caller; we
+  /// surface them here so non-seekable inputs (pipes, live streams)
+  /// can drive their own decoder of last resort.
+  #[error("HW->SW fallback failed: {source}")]
+  FallbackFailed {
+    /// Underlying error that aborted the fallback transition.
+    source: Box<Error>,
+    /// Packets that the HW path had consumed but had not yet decoded
+    /// at fallback time. The caller can replay them through a
+    /// software decoder of their choice.
+    unconsumed_packets: Vec<Packet>,
+  },
 }
 
 impl std::fmt::Debug for Error {
@@ -84,6 +101,17 @@ impl std::fmt::Debug for Error {
         .field("attempts", attempts)
         // `Packet` is not `Debug`; print just the count so the error is
         // still useful for triage without dumping per-packet bytes.
+        .field(
+          "unconsumed_packets",
+          &format_args!("[{} packets]", unconsumed_packets.len()),
+        )
+        .finish(),
+      Error::FallbackFailed {
+        source,
+        unconsumed_packets,
+      } => f
+        .debug_struct("FallbackFailed")
+        .field("source", source)
         .field(
           "unconsumed_packets",
           &format_args!("[{} packets]", unconsumed_packets.len()),

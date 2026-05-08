@@ -40,6 +40,36 @@ use crate::{
   error::{Error, Result},
 };
 
+/// Checked allocator for `ffmpeg_next::frame::Video`. ffmpeg-next's
+/// `Video::empty` is built on `av_frame_alloc()` and ignores its
+/// NULL-on-OOM return; the resulting `Video` would have a null inner
+/// `*mut AVFrame` and the next FFmpeg call against it would be UB.
+/// Use this helper anywhere a SW video scratch frame is constructed
+/// in production code.
+pub(crate) fn alloc_av_video_frame() -> Result<frame::Video> {
+  let f = frame::Video::empty();
+  // SAFETY: `as_ptr()` reads the inner pointer without dereferencing.
+  if unsafe { f.as_ptr() }.is_null() {
+    return Err(Error::Ffmpeg(ffmpeg_next::Error::Other {
+      errno: libc::ENOMEM,
+    }));
+  }
+  Ok(f)
+}
+
+/// Checked allocator for `ffmpeg_next::frame::Audio`. Same rationale
+/// as [`alloc_av_video_frame`].
+pub(crate) fn alloc_av_audio_frame() -> Result<frame::Audio> {
+  let f = frame::Audio::empty();
+  // SAFETY: `as_ptr()` reads the inner pointer without dereferencing.
+  if unsafe { f.as_ptr() }.is_null() {
+    return Err(Error::Ffmpeg(ffmpeg_next::Error::Other {
+      errno: libc::ENOMEM,
+    }));
+  }
+  Ok(f)
+}
+
 /// CPU-side decoded video frame produced by [`crate::VideoDecoder`].
 pub struct Frame {
   inner: frame::Video,
@@ -362,7 +392,11 @@ pub(crate) fn is_supported_cpu_pix_fmt(pix_fmt: PixelFormat) -> bool {
 /// `0..plane_row_bytes_for(...)` of each row; everything from there to
 /// `stride` is uninitialized padding and must not be exposed via
 /// `slice::from_raw_parts`.
-fn plane_row_bytes_for(pix_fmt: PixelFormat, plane: usize, frame_width: usize) -> Option<usize> {
+pub(crate) fn plane_row_bytes_for(
+  pix_fmt: PixelFormat,
+  plane: usize,
+  frame_width: usize,
+) -> Option<usize> {
   match pix_fmt {
     // 8-bit semi-planar 4:2:0 / 4:2:2: Y at full width (1 byte/sample);
     // UV interleaved at horizontally-subsampled chroma with `ceil(W/2)`

@@ -12,15 +12,50 @@
 
 use std::option::Option;
 
-use ffmpeg_next::codec::Parameters;
+use ffmpeg_next::{codec::Parameters, ffi::avsubtitle_free};
 use mediadecode::{
   Timebase, decoder::SubtitleDecoder, frame::SubtitleFrame, packet::SubtitlePacket,
 };
 
 use crate::{
   Error, Ffmpeg, FfmpegBuffer, boundary, convert,
+  decoder::build_codec_context,
   extras::{SubtitleFrameExtra, SubtitlePacketExtra},
 };
+
+/// RAII wrapper that owns an `ffmpeg_next::Subtitle` scratch slot and
+/// frees the FFmpeg-side rect allocations on drop / explicit `clear`.
+///
+/// `ffmpeg::Subtitle::new()` zero-initializes; `decoder.decode()` may
+/// allocate per-rect storage (`AVSubtitleRect.text` / `.ass` /
+/// `.data[0]` / `.data[1]`) which only `avsubtitle_free` releases.
+/// Without this wrapper, every successful decode leaks until the
+/// decoder drops.
+struct ScratchSubtitle {
+  inner: ffmpeg_next::Subtitle,
+}
+
+impl ScratchSubtitle {
+  fn new() -> Self {
+    Self {
+      inner: ffmpeg_next::Subtitle::new(),
+    }
+  }
+
+  fn clear(&mut self) {
+    // SAFETY: `inner` holds a valid AVSubtitle (zero-initialized or
+    // populated by `decode`). `avsubtitle_free` frees the rect array
+    // and per-rect allocations, then leaves the struct in a state
+    // suitable for reuse by the next decode call.
+    unsafe { avsubtitle_free(self.inner.as_mut_ptr()) };
+  }
+}
+
+impl Drop for ScratchSubtitle {
+  fn drop(&mut self) {
+    self.clear();
+  }
+}
 
 /// `mediadecode::SubtitleDecoder` impl wrapping `ffmpeg::decoder::Subtitle`.
 ///
@@ -30,7 +65,7 @@ use crate::{
 /// so the trait's `send_packet` / `receive_frame` split works.
 pub struct FfmpegSubtitleStreamDecoder {
   decoder: ffmpeg_next::decoder::Subtitle,
-  scratch: ffmpeg_next::Subtitle,
+  scratch: ScratchSubtitle,
   pending: Option<SubtitleFrame<SubtitleFrameExtra, FfmpegBuffer>>,
   time_base: Timebase,
 }
@@ -38,15 +73,16 @@ pub struct FfmpegSubtitleStreamDecoder {
 impl FfmpegSubtitleStreamDecoder {
   /// Opens a subtitle decoder for the given codec parameters.
   pub fn open(parameters: Parameters, time_base: Timebase) -> Result<Self, SubtitleDecodeError> {
-    let ctx = ffmpeg_next::codec::Context::from_parameters(parameters)
-      .map_err(|e| SubtitleDecodeError::Decode(Error::Ffmpeg(e)))?;
+    // Use the checked codec-context builder — `Context::from_parameters`
+    // is OOM-UB-prone (see `crate::decoder::build_codec_context`).
+    let ctx = build_codec_context(&parameters).map_err(SubtitleDecodeError::Decode)?;
     let decoder = ctx
       .decoder()
       .subtitle()
       .map_err(|e| SubtitleDecodeError::Decode(Error::Ffmpeg(e)))?;
     Ok(Self {
       decoder,
-      scratch: ffmpeg_next::Subtitle::new(),
+      scratch: ScratchSubtitle::new(),
       pending: None,
       time_base,
     })
@@ -72,17 +108,41 @@ impl SubtitleDecoder for FfmpegSubtitleStreamDecoder {
     &mut self,
     packet: &SubtitlePacket<SubtitlePacketExtra, Self::Buffer>,
   ) -> Result<(), Self::Error> {
+    // Disallow sending while a previously-decoded frame hasn't been
+    // drained yet. The legacy `decode()` API produces a frame inline,
+    // so a second send would silently drop the first — surface that
+    // as an error so callers notice the drain ordering.
+    if self.pending.is_some() {
+      return Err(SubtitleDecodeError::FramePending);
+    }
     let av_pkt = boundary::ffmpeg_packet_from_subtitle_packet(packet);
+    // Free any allocations from a previous decode before reusing the
+    // scratch — avoids leaking when the previous packet produced no
+    // frame (got == false, which still mutates the struct).
+    self.scratch.clear();
     let got = self
       .decoder
-      .decode(&av_pkt, &mut self.scratch)
+      .decode(&av_pkt, &mut self.scratch.inner)
       .map_err(|e| SubtitleDecodeError::Decode(Error::Ffmpeg(e)))?;
     if got {
-      // SAFETY: scratch is a live AVSubtitle just filled by decode.
-      let frame =
-        unsafe { convert::av_subtitle_to_subtitle_frame(self.scratch.as_ptr(), self.time_base) }
-          .map_err(SubtitleDecodeError::Convert)?;
-      self.pending = Some(frame);
+      // SAFETY: scratch.inner is a live AVSubtitle just filled by
+      // decode. Conversion deep-copies all rect contents into owned
+      // FfmpegBuffers; the FFmpeg-side allocations are released
+      // unconditionally below (success and error paths both reach
+      // the next `clear()` on the next decode or on drop).
+      let result = unsafe {
+        convert::av_subtitle_to_subtitle_frame(self.scratch.inner.as_ptr(), self.time_base)
+      };
+      match result {
+        Ok(frame) => self.pending = Some(frame),
+        Err(e) => {
+          // Free immediately on conversion failure — without this, a
+          // caller that ignores the error and calls `flush` would
+          // bypass the scratch's deferred cleanup.
+          self.scratch.clear();
+          return Err(SubtitleDecodeError::Convert(e));
+        }
+      }
     }
     Ok(())
   }
@@ -109,6 +169,7 @@ impl SubtitleDecoder for FfmpegSubtitleStreamDecoder {
   fn flush(&mut self) -> Result<(), Self::Error> {
     self.decoder.flush();
     self.pending = None;
+    self.scratch.clear();
     Ok(())
   }
 }
@@ -127,4 +188,9 @@ pub enum SubtitleDecodeError {
   /// should send another packet.
   #[error("no subtitle frame ready; send another packet first")]
   NoFrameReady,
+  /// `send_packet` was called while a decoded frame from a previous
+  /// packet hasn't been drained — the legacy `decode()` API can't
+  /// queue, so the caller must drain via `receive_frame` first.
+  #[error("subtitle frame already pending; drain via receive_frame first")]
+  FramePending,
 }

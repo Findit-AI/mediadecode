@@ -33,13 +33,19 @@ pub struct FfmpegBuffer {
   len: usize,
 }
 
-// SAFETY: `AVBufferRef` is internally synchronized by FFmpeg's atomic
-// refcount and the data buffer it owns is read-only after creation
-// (FFmpeg's documented contract — packets and frames are immutable
-// after they're handed to the consumer). Hand-off across threads is
-// allowed.
+// SAFETY: `AVBufferRef`'s refcount is atomically managed by FFmpeg, so
+// transferring ownership of an `FfmpegBuffer` across threads is sound —
+// `Drop` (which is the only operation that mutates the refcount) calls
+// `av_buffer_unref` which uses atomic decrement.
+//
+// We deliberately do **not** implement `Sync`. Decoder-output buffers
+// from FFmpeg are immutable in practice, but the underlying
+// `AVBufferRef.data` is reachable through `as_av_buffer_ref` and
+// nothing in this type's contract prevents a caller from passing the
+// pointer to an FFmpeg API that mutates the bytes — concurrent reads
+// from another thread would then race. `Send`-only is the conservative
+// stance.
 unsafe impl Send for FfmpegBuffer {}
-unsafe impl Sync for FfmpegBuffer {}
 
 impl FfmpegBuffer {
   /// Constructs an `FfmpegBuffer` by **incrementing** the refcount of
@@ -129,21 +135,44 @@ impl FfmpegBuffer {
 
   /// Borrows the refcounted payload of an `ffmpeg::Packet` as an
   /// `FfmpegBuffer` view. The packet's `AVBufferRef` is shared via
-  /// refcount bump — no copy. Returns `None` when the packet has no
-  /// buffer attached (typical after EOF).
+  /// refcount bump — no copy. The view spans exactly
+  /// `(*packet.as_ptr()).data .. data + size` (the *payload*) — not
+  /// the entire underlying allocation: `AVPacket.buf` can be larger
+  /// than the payload (encoder padding, oversized buffers, sub-range
+  /// references after `av_packet_split_side_data`), so exposing the
+  /// whole AVBufferRef would corrupt downstream consumers that
+  /// trust the buffer to be just the compressed bytes.
   ///
-  /// This is the safe replacement for `unsafe { from_ref(packet.buf) }`.
-  /// It's sound because `&packet` keeps the AVPacket live for the
-  /// duration of the call, and the refcount bump is FFmpeg's
-  /// documented contract.
+  /// Returns `None` when the packet has no refcounted buffer
+  /// (`buf == NULL`) — callers needing universal coverage of stack-
+  /// or arena-allocated AVPackets can fall back to
+  /// [`Self::copy_from_slice`] over `packet.data()`.
   #[inline]
   pub fn from_packet(packet: &ffmpeg_next::Packet) -> Option<Self> {
     use ffmpeg_next::packet::Ref;
     // SAFETY: `packet` keeps the AVPacket live for the duration of
-    // this call; `.buf` is a public field on AVPacket and may be
-    // null. `from_ref` handles the null case and the refcount bump.
+    // this call; `.buf`, `.data`, `.size` are public fields on
+    // AVPacket. `buf` may be null (stack-allocated packets).
     let buf_ptr = unsafe { (*packet.as_ptr()).buf };
-    unsafe { Self::from_ref(buf_ptr) }
+    if buf_ptr.is_null() {
+      return None;
+    }
+    let data_ptr = unsafe { (*packet.as_ptr()).data };
+    let size_raw = unsafe { (*packet.as_ptr()).size };
+    if data_ptr.is_null() || size_raw <= 0 {
+      return None;
+    }
+    let payload_len = size_raw as usize;
+    // Compute the offset of `data` inside `buf`. AVPacket guarantees
+    // `data` lies within `buf->data .. buf->data + buf->size`, but
+    // we verify defensively with `from_ref_view` (which bounds-
+    // checks against `buf->size`).
+    let buf_data = unsafe { (*buf_ptr).data };
+    if buf_data.is_null() {
+      return None;
+    }
+    let offset = (data_ptr as usize).wrapping_sub(buf_data as usize);
+    unsafe { Self::from_ref_view(buf_ptr, offset, payload_len) }
   }
 
   /// Borrows one of an `ffmpeg::Frame`'s plane buffers
@@ -235,22 +264,39 @@ impl FfmpegBuffer {
   }
 
   /// Raw pointer to the start of this view. Valid for [`Self::len`]
-  /// bytes for the lifetime of `self`.
+  /// bytes for the lifetime of `self`. Returns a dangling-but-aligned
+  /// pointer when the view is empty (parallel to `core::ptr::NonNull::dangling`)
+  /// — the caller must respect [`Self::len`] before any read.
   #[inline]
   pub fn as_ptr(&self) -> *const u8 {
-    // SAFETY: inner is non-null per constructor invariant; offset is
-    // bounds-checked against the buffer's size at construction.
-    unsafe { ((*self.inner).data as *const u8).add(self.offset) }
+    // SAFETY: inner is non-null per constructor invariant. We guard
+    // against null `data` (possible when the underlying AVBufferRef
+    // was created with size 0) before doing pointer arithmetic, since
+    // `null.add(offset)` is UB for offset > 0 even before any deref.
+    unsafe {
+      let data = (*self.inner).data;
+      if data.is_null() {
+        // Safe sentinel for empty/dataless buffers. The caller must
+        // gate any read on `len() == 0`.
+        return core::ptr::NonNull::<u8>::dangling().as_ptr();
+      }
+      (data as *const u8).add(self.offset)
+    }
   }
 
-  /// Underlying `*mut AVBufferRef`. Useful when handing the buffer
+  /// Underlying `*const AVBufferRef`. Useful when handing the buffer
   /// back to an FFmpeg API that expects a borrowed pointer (do **not**
   /// call `av_buffer_unref` on the result — `self` still owns the ref).
   /// The returned pointer references the **whole** buffer, not just
   /// this view's sub-region.
+  ///
+  /// This intentionally returns `*const`, not `*mut`. FFmpeg APIs that
+  /// mutate via the buffer (e.g. `av_buffer_make_writable`) should be
+  /// reached through the unsafe constructors which transfer ownership;
+  /// shared `&self` access must not allow aliased writes.
   #[inline]
-  pub fn as_av_buffer_ref(&self) -> *mut AVBufferRef {
-    self.inner
+  pub fn as_av_buffer_ref(&self) -> *const AVBufferRef {
+    self.inner as *const _
   }
 
   /// Byte offset of this view's start within the underlying buffer.
@@ -302,6 +348,9 @@ impl AsRef<[u8]> for FfmpegBuffer {
       if data.is_null() || self.len == 0 {
         return &[];
       }
+      // `offset + len <= buffer size` was established at construction
+      // (and preserved by Clone), so the resulting pointer + length
+      // stays inside the AVBufferRef's allocation.
       slice::from_raw_parts(data.add(self.offset), self.len)
     }
   }

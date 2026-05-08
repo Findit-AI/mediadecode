@@ -48,8 +48,17 @@ pub const fn from_av_pixel_format(raw: i32) -> PixelFormat {
     x if x == AVPixelFormat::AV_PIX_FMT_NV42 as i32 => PixelFormat::Nv42,
     // Semi-planar YUV high-bit-depth.
     x if x == AVPixelFormat::AV_PIX_FMT_P010LE as i32 => PixelFormat::P010Le,
-    // BE folds onto the LE-canonical enum.
-    x if x == AVPixelFormat::AV_PIX_FMT_P010BE as i32 => PixelFormat::P010Le,
+    // BE-tagged FFmpeg formats map to mediadecode's distinct BE
+    // variants. Folding BE onto the LE canonical enum was a previous
+    // shortcut that silently corrupted pixel data: each 16-bit sample
+    // is byte-swapped between BE and LE, and the convert path
+    // exports the AVBufferRef bytes verbatim without endian
+    // conversion. Consumers reading the planes as LE samples on a
+    // BE-tagged frame would interpret every Y/UV sample with its
+    // bytes reversed. By mapping to the BE variant we let
+    // `is_supported_cpu_pix_fmt` correctly reject the format until
+    // proper BE support (or a byte-swap) is wired in.
+    x if x == AVPixelFormat::AV_PIX_FMT_P010BE as i32 => PixelFormat::P010Be,
     x if x == AVPixelFormat::AV_PIX_FMT_P012LE as i32 => PixelFormat::P012Le,
     x if x == AVPixelFormat::AV_PIX_FMT_P016LE as i32 => PixelFormat::P016Le,
     x if x == AVPixelFormat::AV_PIX_FMT_P210LE as i32 => PixelFormat::P210Le,
@@ -431,10 +440,14 @@ mod tests {
   }
 
   #[test]
-  fn p010be_folds_to_p010le() {
+  fn p010be_maps_to_p010be() {
+    // BE must map to the BE variant — the previous "fold to LE"
+    // mapping silently corrupted P010BE pixel data via the safe
+    // export path. The unsupported-format gate in `convert::av_frame_to_video_frame`
+    // is the right place to reject BE today.
     assert_eq!(
       from_av_pixel_format(AVPixelFormat::AV_PIX_FMT_P010BE as i32),
-      PixelFormat::P010Le,
+      PixelFormat::P010Be,
     );
   }
 
