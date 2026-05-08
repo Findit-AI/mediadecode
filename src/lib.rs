@@ -16,7 +16,14 @@
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
+// Workspace pattern (mirrors mediatime / colconv / scenesdetect) — alias
+// `alloc` as `std` so `std::vec::Vec` etc. resolves in alloc-only builds.
+// The `allow` is needed because `mediadecode`'s public API currently uses
+// only `core::` paths, leaving the alias technically unused at this layer.
+// Downstream tests and future additions may rely on it; keeping the alias
+// preserves consistency with sibling crates.
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
+#[allow(unused_extern_crates)]
 extern crate alloc as std;
 
 #[cfg(feature = "std")]
