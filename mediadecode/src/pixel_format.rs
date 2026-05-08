@@ -869,6 +869,11 @@ mod tests {
     assert_eq!(PixelFormat::from_u32(1), PixelFormat::Unknown);
   }
 
+  // `format!` requires an allocator; gate to alloc-or-std builds.
+  // The `Display` impl itself works in bare-core mode via
+  // `write!`-style sinks — only this test's assertion strategy needs
+  // alloc.
+  #[cfg(any(feature = "alloc", feature = "std"))]
   #[test]
   fn display_uses_ffmpeg_lowercase_names() {
     assert_eq!(format!("{}", PixelFormat::Yuv420p), "yuv420p");

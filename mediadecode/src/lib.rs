@@ -21,10 +21,12 @@
 // `alloc` as `std` so `std::vec::Vec` etc. resolves in alloc-only builds.
 // The `allow` is needed because `mediadecode`'s public API currently uses
 // only `core::` paths, leaving the alias technically unused at this layer.
-// Downstream tests and future additions may rely on it; keeping the alias
-// preserves consistency with sibling crates.
+// `#[macro_use]` brings `vec!` / `format!` / `write!` etc. into scope so
+// `#[cfg(test)]` modules under `--no-default-features --features alloc`
+// still compile (the std prelude that normally provides them is gone).
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 #[allow(unused_extern_crates)]
+#[macro_use]
 extern crate alloc as std;
 
 #[cfg(feature = "std")]

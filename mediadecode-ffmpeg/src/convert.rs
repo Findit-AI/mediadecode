@@ -163,6 +163,13 @@ pub unsafe fn av_frame_to_video_frame(
   ];
   let mut plane_count: u8 = 0;
 
+  // The loop body indexes `planes_out`, the AVFrame's `linesize`, and
+  // its `data` array all by `plane_idx`. None of these are slices we
+  // can iterate via `iter_mut().enumerate()` — `linesize` / `data` are
+  // raw `[T; 8]` fields read through `(*av_frame).field[plane_idx]`,
+  // and `planes_out` is also indexed by the same key for symmetry —
+  // so the index-based loop is the natural shape.
+  #[allow(clippy::needless_range_loop)]
   for plane_idx in 0..4 {
     // Read per-plane fields through the raw pointer (no `&AVFrame`
     // formed). `linesize` is `[c_int; 8]` and `data` is `[*mut u8; 8]`.
@@ -648,6 +655,10 @@ pub unsafe fn av_frame_to_audio_frame(
     audio_plane_placeholder()?,
   ];
 
+  // Same rationale as in the video path — index-by-key over three
+  // unrelated raw arrays (`planes_out`, `(*av_frame).data`, and the
+  // implicit per-plane bookkeeping); no slice iteration applies.
+  #[allow(clippy::needless_range_loop)]
   for plane_idx in 0..plane_count as usize {
     let data_ptr = unsafe { (*av_frame).data[plane_idx] };
     if data_ptr.is_null() {

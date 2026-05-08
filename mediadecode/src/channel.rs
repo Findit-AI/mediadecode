@@ -652,6 +652,8 @@ mod tests {
     assert_eq!(ChannelLayoutKind::from_u32(0), ChannelLayoutKind::Unknown);
   }
 
+  // `format!` requires an allocator; gate to alloc-or-std builds.
+  #[cfg(any(feature = "alloc", feature = "std"))]
   #[test]
   fn channel_layout_kind_display() {
     assert_eq!(format!("{}", ChannelLayoutKind::Mono), "mono");
