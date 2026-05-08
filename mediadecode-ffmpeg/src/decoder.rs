@@ -1202,10 +1202,11 @@ unsafe fn transfer_hw_frame(
     // to the next backend rather than collapsing on an unusable frame;
     // post-probe, the caller gets an `Err` they can branch into a
     // software fallback.
-    let dst_pix_fmt = crate::pix_fmt::PixelFormat::from_raw((*dst.as_inner_mut().as_ptr()).format);
+    let dst_raw_fmt: i32 = (*dst.as_inner_mut().as_ptr()).format;
+    let dst_pix_fmt = crate::boundary::from_av_pixel_format(dst_raw_fmt);
     if !crate::frame::is_supported_cpu_pix_fmt(dst_pix_fmt) {
       tracing::warn!(
-        pix_fmt = dst_pix_fmt.raw(),
+        pix_fmt = dst_raw_fmt,
         "hwdecode: hw->cpu transfer produced unsupported pix_fmt; \
          treating as backend failure"
       );
@@ -1566,10 +1567,11 @@ fn drain_into_pending(
         // `Frame::as_ptr` would return `None`. Refuse the candidate
         // before the queue grows so probing advances to the next
         // backend instead.
-        let cpu_pix_fmt = crate::pix_fmt::PixelFormat::from_raw(unsafe { (*cpu.as_ptr()).format });
+        let cpu_raw_fmt: i32 = unsafe { (*cpu.as_ptr()).format };
+        let cpu_pix_fmt = crate::boundary::from_av_pixel_format(cpu_raw_fmt);
         if !crate::frame::is_supported_cpu_pix_fmt(cpu_pix_fmt) {
           tracing::warn!(
-            pix_fmt = cpu_pix_fmt.raw(),
+            pix_fmt = cpu_raw_fmt,
             "hwdecode: candidate produced unsupported CPU pix_fmt during \
              probe replay; failing candidate"
           );
@@ -1980,7 +1982,7 @@ mod tests {
     // before any pointer dereference.
     unsafe {
       let raw = f.as_mut_ptr();
-      (*raw).format = crate::pix_fmt::PixelFormat::NV12.raw();
+      (*raw).format = ffmpeg_next::ffi::AVPixelFormat::AV_PIX_FMT_NV12 as i32;
       (*raw).width = 1920;
       (*raw).height = 1080;
       (*raw).linesize[0] = -1920;
@@ -2073,7 +2075,7 @@ mod tests {
     let mut f = frame::Video::empty();
     unsafe {
       let raw = f.as_mut_ptr();
-      (*raw).format = crate::pix_fmt::PixelFormat::NV12.raw();
+      (*raw).format = ffmpeg_next::ffi::AVPixelFormat::AV_PIX_FMT_NV12 as i32;
       // Display dims tiny — pre-fix would have used `height = 1` to
       // size the plane and reported `linesize * 1` ≪ 256.
       (*raw).width = 1;

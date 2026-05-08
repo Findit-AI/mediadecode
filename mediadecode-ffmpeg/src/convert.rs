@@ -13,16 +13,15 @@ use ffmpeg_next::ffi::{
   AVColorTransferCharacteristic, AVFrame, AVPictureType,
 };
 use mediadecode::{
-  Timebase, Timestamp,
+  PixelFormat, Timebase, Timestamp,
   color::{ChromaLocation, ColorInfo, ColorMatrix, ColorPrimaries, ColorRange, ColorTransfer},
   frame::{Plane, Rect, VideoFrame},
 };
 
 use crate::{
-  FfmpegBuffer,
+  FfmpegBuffer, boundary,
   extras::{PictureType, SideDataEntry, VideoFrameExtra},
   frame::{is_supported_cpu_pix_fmt, plane_height_for},
-  pix_fmt::PixelFormat,
 };
 
 /// Errors from [`av_frame_to_video_frame`].
@@ -88,7 +87,7 @@ pub unsafe fn av_frame_to_video_frame(
   // SAFETY: Caller guarantees liveness for the duration of the call.
   let frame = unsafe { &*av_frame };
 
-  let pix_fmt = PixelFormat::from_raw(frame.format);
+  let pix_fmt = boundary::from_av_pixel_format(frame.format);
   let width = frame.width.max(0) as u32;
   let height = frame.height.max(0) as u32;
 
@@ -174,23 +173,12 @@ pub unsafe fn av_frame_to_video_frame(
   // Backend-specific extras.
   let extra = build_video_frame_extra(frame);
 
-  // Map the internal i32-newtype to the unified mediadecode enum at
-  // the boundary. Internal helpers (is_supported_cpu_pix_fmt,
-  // plane_height_for, plane_row_bytes_for) keep using the i32 newtype
-  // for their HW-format-specific dispatch tables.
-  let unified_pix_fmt = pix_fmt.into_mediadecode();
-
-  let mut out = VideoFrame::new(
-    width,
-    height,
-    unified_pix_fmt,
-    planes_out,
-    plane_count,
-    extra,
-  )
-  .with_pts(pts)
-  .with_duration(duration)
-  .with_color(color);
+  // pix_fmt is already mediadecode::PixelFormat thanks to the boundary
+  // function above, so we just pass it through.
+  let mut out = VideoFrame::new(width, height, pix_fmt, planes_out, plane_count, extra)
+    .with_pts(pts)
+    .with_duration(duration)
+    .with_color(color);
   if let Some(r) = visible_rect {
     out = out.with_visible_rect(Some(r));
   }

@@ -27,15 +27,17 @@
 //! reach for [`Frame::as_ptr`] and consume `stride * plane_h` bytes
 //! themselves under their own `unsafe` contract.
 //!
-//! Compare formats against integer constants in [`crate::pix_fmt`].
+//! Compare formats against the variants of
+//! [`mediadecode::PixelFormat`].
 
 use std::slice;
 
 use ffmpeg_next::frame;
+use mediadecode::PixelFormat;
 
 use crate::{
+  boundary,
   error::{Error, Result},
-  pix_fmt::PixelFormat,
 };
 
 /// CPU-side decoded video frame produced by [`crate::VideoDecoder`].
@@ -74,14 +76,13 @@ impl Frame {
     unsafe { (*self.inner.as_ptr()).height as u32 }
   }
 
-  /// Pixel format, returned as a [`PixelFormat`] wrapping the raw `i32`
-  /// value FFmpeg wrote to `AVFrame.format`. Sound regardless of the
-  /// linked FFmpeg version — no `AVPixelFormat` enum is constructed.
-  ///
-  /// Compare against constants on [`PixelFormat`].
+  /// Pixel format, returned as a [`PixelFormat`] (the unified
+  /// mediadecode enum). The mapping is via [`boundary::from_av_pixel_format`]
+  /// — sound regardless of the linked FFmpeg version, no
+  /// `AVPixelFormat` enum is constructed from a runtime integer.
   pub fn pix_fmt(&self) -> PixelFormat {
     // SAFETY: AVFrame.format is bound as c_int.
-    PixelFormat::from_raw(unsafe { (*self.inner.as_ptr()).format })
+    boundary::from_av_pixel_format(unsafe { (*self.inner.as_ptr()).format })
   }
 
   /// Presentation timestamp in stream time base, or `None` for
@@ -312,20 +313,19 @@ struct PlaneInfo {
 pub(crate) fn is_supported_cpu_pix_fmt(pix_fmt: PixelFormat) -> bool {
   matches!(
     pix_fmt,
-    PixelFormat::NV12
-      | PixelFormat::NV21
-      | PixelFormat::NV16
-      | PixelFormat::NV24
-      | PixelFormat::P010LE
-      | PixelFormat::P010BE
-      | PixelFormat::P012LE
-      | PixelFormat::P016LE
-      | PixelFormat::P210LE
-      | PixelFormat::P212LE
-      | PixelFormat::P216LE
-      | PixelFormat::P410LE
-      | PixelFormat::P412LE
-      | PixelFormat::P416LE
+    PixelFormat::Nv12
+      | PixelFormat::Nv21
+      | PixelFormat::Nv16
+      | PixelFormat::Nv24
+      | PixelFormat::P010Le
+      | PixelFormat::P012Le
+      | PixelFormat::P016Le
+      | PixelFormat::P210Le
+      | PixelFormat::P212Le
+      | PixelFormat::P216Le
+      | PixelFormat::P410Le
+      | PixelFormat::P412Le
+      | PixelFormat::P416Le
   )
 }
 
@@ -346,14 +346,14 @@ fn plane_row_bytes_for(pix_fmt: PixelFormat, plane: usize, frame_width: usize) -
     // `W` bytes (the simple case); for odd W it must round *up* to the
     // next even byte so the trailing chroma sample is not silently
     // dropped on width = 2k+1 frames.
-    PixelFormat::NV12 | PixelFormat::NV21 | PixelFormat::NV16 => match plane {
+    PixelFormat::Nv12 | PixelFormat::Nv21 | PixelFormat::Nv16 => match plane {
       0 => Some(frame_width),
       1 => Some(frame_width.div_ceil(2).checked_mul(2)?),
       _ => None,
     },
     // 8-bit 4:4:4 semi-planar: chroma at full horizontal resolution,
     // 2 bytes per pixel (1 byte U + 1 byte V) — no rounding required.
-    PixelFormat::NV24 => match plane {
+    PixelFormat::Nv24 => match plane {
       0 => Some(frame_width),
       1 => Some(frame_width.checked_mul(2)?),
       _ => None,
@@ -363,20 +363,19 @@ fn plane_row_bytes_for(pix_fmt: PixelFormat, plane: usize, frame_width: usize) -
     // subsampled chroma with `ceil(W/2)` U+V pairs at 4 bytes per pair
     // (2 bytes U + 2 bytes V). Same odd-width rounding as the 8-bit
     // chroma path, scaled by 2 bytes per sample.
-    PixelFormat::P010LE
-    | PixelFormat::P010BE
-    | PixelFormat::P012LE
-    | PixelFormat::P016LE
-    | PixelFormat::P210LE
-    | PixelFormat::P212LE
-    | PixelFormat::P216LE => match plane {
+    PixelFormat::P010Le
+    | PixelFormat::P012Le
+    | PixelFormat::P016Le
+    | PixelFormat::P210Le
+    | PixelFormat::P212Le
+    | PixelFormat::P216Le => match plane {
       0 => Some(frame_width.checked_mul(2)?),
       1 => Some(frame_width.div_ceil(2).checked_mul(4)?),
       _ => None,
     },
     // 10/12/16-bit 4:4:4 semi-planar: Y is 2 bytes/sample; UV at full
     // horizontal resolution with 4 bytes per pixel (2 bytes U + 2 bytes V).
-    PixelFormat::P410LE | PixelFormat::P412LE | PixelFormat::P416LE => match plane {
+    PixelFormat::P410Le | PixelFormat::P412Le | PixelFormat::P416Le => match plane {
       0 => Some(frame_width.checked_mul(2)?),
       1 => Some(frame_width.checked_mul(4)?),
       _ => None,
@@ -398,25 +397,24 @@ pub(crate) fn plane_height_for(
 ) -> Option<usize> {
   match pix_fmt {
     // 4:2:0 semi-planar — Y full height, chroma half height.
-    PixelFormat::NV12
-    | PixelFormat::NV21
-    | PixelFormat::P010LE
-    | PixelFormat::P010BE
-    | PixelFormat::P012LE
-    | PixelFormat::P016LE => match plane {
+    PixelFormat::Nv12
+    | PixelFormat::Nv21
+    | PixelFormat::P010Le
+    | PixelFormat::P012Le
+    | PixelFormat::P016Le => match plane {
       0 => Some(frame_height),
       1 => Some(frame_height.div_ceil(2)),
       _ => None,
     },
     // 4:2:2 / 4:4:4 semi-planar — both planes full height.
-    PixelFormat::NV16
-    | PixelFormat::NV24
-    | PixelFormat::P210LE
-    | PixelFormat::P212LE
-    | PixelFormat::P216LE
-    | PixelFormat::P410LE
-    | PixelFormat::P412LE
-    | PixelFormat::P416LE => match plane {
+    PixelFormat::Nv16
+    | PixelFormat::Nv24
+    | PixelFormat::P210Le
+    | PixelFormat::P212Le
+    | PixelFormat::P216Le
+    | PixelFormat::P410Le
+    | PixelFormat::P412Le
+    | PixelFormat::P416Le => match plane {
       0 | 1 => Some(frame_height),
       _ => None,
     },
@@ -427,6 +425,7 @@ pub(crate) fn plane_height_for(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use ffmpeg_next::ffi::AVPixelFormat;
 
   #[test]
   fn empty_frame_has_zero_dimensions_and_no_pts() {
@@ -435,7 +434,7 @@ mod tests {
     assert_eq!(f.height(), 0);
     assert_eq!(f.pts(), None);
     // AVFrame.format defaults to -1 (AV_PIX_FMT_NONE) for an empty frame.
-    assert_eq!(f.pix_fmt(), PixelFormat::NONE);
+    assert_eq!(f.pix_fmt(), PixelFormat::Unknown);
     // No active planes for an empty frame (all linesize entries are 0).
     assert_eq!(f.planes(), 0);
   }
@@ -463,7 +462,7 @@ mod tests {
     let mut f = Frame::empty().expect("alloc");
     unsafe {
       let raw = f.inner.as_mut_ptr();
-      (*raw).format = PixelFormat::NV12.raw();
+      (*raw).format = AVPixelFormat::AV_PIX_FMT_NV12 as i32;
       (*raw).width = 1920;
       (*raw).height = 1080;
       (*raw).linesize[0] = -1920; // vertically-flipped
@@ -487,7 +486,7 @@ mod tests {
     let mut f = Frame::empty().expect("alloc");
     unsafe {
       let raw = f.inner.as_mut_ptr();
-      (*raw).format = PixelFormat::NV12.raw();
+      (*raw).format = AVPixelFormat::AV_PIX_FMT_NV12 as i32;
       (*raw).width = 1920;
       (*raw).height = 0;
       (*raw).linesize[0] = 1920;
@@ -530,7 +529,7 @@ mod tests {
     let mut f = Frame::empty().expect("alloc");
     unsafe {
       let raw = f.inner.as_mut_ptr();
-      (*raw).format = PixelFormat::NV12.raw();
+      (*raw).format = AVPixelFormat::AV_PIX_FMT_NV12 as i32;
       (*raw).width = width as i32;
       (*raw).height = height as i32;
       (*raw).linesize[0] = stride as i32;
@@ -599,15 +598,15 @@ mod tests {
   #[test]
   fn plane_height_table_covers_supported_formats() {
     // Spot-check the chroma subsampling table.
-    assert_eq!(plane_height_for(PixelFormat::NV12, 0, 1080), Some(1080));
-    assert_eq!(plane_height_for(PixelFormat::NV12, 1, 1080), Some(540));
-    assert_eq!(plane_height_for(PixelFormat::NV12, 1, 1081), Some(541));
-    assert_eq!(plane_height_for(PixelFormat::P010LE, 1, 1080), Some(540));
-    assert_eq!(plane_height_for(PixelFormat::NV16, 1, 1080), Some(1080));
-    assert_eq!(plane_height_for(PixelFormat::NV24, 1, 1080), Some(1080));
-    assert_eq!(plane_height_for(PixelFormat::P416LE, 1, 1080), Some(1080));
-    assert_eq!(plane_height_for(PixelFormat::NONE, 0, 1080), None);
-    assert_eq!(plane_height_for(PixelFormat::NV12, 2, 1080), None);
+    assert_eq!(plane_height_for(PixelFormat::Nv12, 0, 1080), Some(1080));
+    assert_eq!(plane_height_for(PixelFormat::Nv12, 1, 1080), Some(540));
+    assert_eq!(plane_height_for(PixelFormat::Nv12, 1, 1081), Some(541));
+    assert_eq!(plane_height_for(PixelFormat::P010Le, 1, 1080), Some(540));
+    assert_eq!(plane_height_for(PixelFormat::Nv16, 1, 1080), Some(1080));
+    assert_eq!(plane_height_for(PixelFormat::Nv24, 1, 1080), Some(1080));
+    assert_eq!(plane_height_for(PixelFormat::P416Le, 1, 1080), Some(1080));
+    assert_eq!(plane_height_for(PixelFormat::Unknown, 0, 1080), None);
+    assert_eq!(plane_height_for(PixelFormat::Nv12, 2, 1080), None);
   }
 
   /// 4:2:0 / 4:2:2 chroma planes carry `ceil(W/2)` U+V pairs per row.
@@ -620,55 +619,55 @@ mod tests {
   fn plane_row_bytes_rounds_up_chroma_for_odd_widths() {
     // 8-bit subsampled chroma — odd W gains one byte (the missing sample
     // pair).
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV12, 1, 1921), Some(1922));
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV21, 1, 1921), Some(1922));
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV16, 1, 1921), Some(1922));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv12, 1, 1921), Some(1922));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv21, 1, 1921), Some(1922));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv16, 1, 1921), Some(1922));
     // High-bit-depth subsampled chroma — odd W gains two bytes.
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P010LE, 1, 1921),
+      plane_row_bytes_for(PixelFormat::P010Le, 1, 1921),
       Some(3844)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P010BE, 1, 1921),
+      plane_row_bytes_for(PixelFormat::P010Le, 1, 1921),
       Some(3844)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P012LE, 1, 1921),
+      plane_row_bytes_for(PixelFormat::P012Le, 1, 1921),
       Some(3844)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P016LE, 1, 1921),
+      plane_row_bytes_for(PixelFormat::P016Le, 1, 1921),
       Some(3844)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P210LE, 1, 1921),
+      plane_row_bytes_for(PixelFormat::P210Le, 1, 1921),
       Some(3844)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P212LE, 1, 1921),
+      plane_row_bytes_for(PixelFormat::P212Le, 1, 1921),
       Some(3844)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P216LE, 1, 1921),
+      plane_row_bytes_for(PixelFormat::P216Le, 1, 1921),
       Some(3844)
     );
     // Y planes always at full width regardless of subsampling.
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV12, 0, 1921), Some(1921));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv12, 0, 1921), Some(1921));
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P010LE, 0, 1921),
+      plane_row_bytes_for(PixelFormat::P010Le, 0, 1921),
       Some(3842)
     );
     // 4:4:4 chroma is at full horizontal resolution — no rounding.
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV24, 1, 1921), Some(3842));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv24, 1, 1921), Some(3842));
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P410LE, 1, 1921),
+      plane_row_bytes_for(PixelFormat::P410Le, 1, 1921),
       Some(7684)
     );
     // Even widths must still match the original (pre-fix) values so the
     // change is purely additive on the dominant code path.
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV12, 1, 1920), Some(1920));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv12, 1, 1920), Some(1920));
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P010LE, 1, 1920),
+      plane_row_bytes_for(PixelFormat::P010Le, 1, 1920),
       Some(3840)
     );
   }
@@ -676,42 +675,42 @@ mod tests {
   #[test]
   fn plane_row_bytes_table_covers_supported_formats() {
     // 8-bit 4:2:0 / 4:2:2 — both planes at width.
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV12, 0, 1920), Some(1920));
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV12, 1, 1920), Some(1920));
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV21, 1, 1920), Some(1920));
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV16, 1, 1920), Some(1920));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv12, 0, 1920), Some(1920));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv12, 1, 1920), Some(1920));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv21, 1, 1920), Some(1920));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv16, 1, 1920), Some(1920));
     // 8-bit 4:4:4 — chroma plane is 2 * width.
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV24, 0, 1920), Some(1920));
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV24, 1, 1920), Some(3840));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv24, 0, 1920), Some(1920));
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv24, 1, 1920), Some(3840));
     // 10/12/16-bit 4:2:0 / 4:2:2 — both planes at 2 * width.
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P010LE, 0, 1920),
+      plane_row_bytes_for(PixelFormat::P010Le, 0, 1920),
       Some(3840)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P010LE, 1, 1920),
+      plane_row_bytes_for(PixelFormat::P010Le, 1, 1920),
       Some(3840)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P210LE, 1, 1920),
+      plane_row_bytes_for(PixelFormat::P210Le, 1, 1920),
       Some(3840)
     );
     // 10/12/16-bit 4:4:4 — Y is 2 * width, chroma is 4 * width.
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P410LE, 0, 1920),
+      plane_row_bytes_for(PixelFormat::P410Le, 0, 1920),
       Some(3840)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P410LE, 1, 1920),
+      plane_row_bytes_for(PixelFormat::P410Le, 1, 1920),
       Some(7680)
     );
     assert_eq!(
-      plane_row_bytes_for(PixelFormat::P416LE, 1, 1920),
+      plane_row_bytes_for(PixelFormat::P416Le, 1, 1920),
       Some(7680)
     );
     // Unsupported / out-of-range.
-    assert_eq!(plane_row_bytes_for(PixelFormat::NONE, 0, 1920), None);
-    assert_eq!(plane_row_bytes_for(PixelFormat::NV12, 2, 1920), None);
+    assert_eq!(plane_row_bytes_for(PixelFormat::Unknown, 0, 1920), None);
+    assert_eq!(plane_row_bytes_for(PixelFormat::Nv12, 2, 1920), None);
   }
 
   /// Every format `is_supported_cpu_pix_fmt` accepts must also have a
@@ -723,20 +722,20 @@ mod tests {
   #[test]
   fn is_supported_cpu_pix_fmt_agrees_with_row_byte_table() {
     let supported = [
-      PixelFormat::NV12,
-      PixelFormat::NV21,
-      PixelFormat::NV16,
-      PixelFormat::NV24,
-      PixelFormat::P010LE,
-      PixelFormat::P010BE,
-      PixelFormat::P012LE,
-      PixelFormat::P016LE,
-      PixelFormat::P210LE,
-      PixelFormat::P212LE,
-      PixelFormat::P216LE,
-      PixelFormat::P410LE,
-      PixelFormat::P412LE,
-      PixelFormat::P416LE,
+      PixelFormat::Nv12,
+      PixelFormat::Nv21,
+      PixelFormat::Nv16,
+      PixelFormat::Nv24,
+      PixelFormat::P010Le,
+      PixelFormat::P010Le,
+      PixelFormat::P012Le,
+      PixelFormat::P016Le,
+      PixelFormat::P210Le,
+      PixelFormat::P212Le,
+      PixelFormat::P216Le,
+      PixelFormat::P410Le,
+      PixelFormat::P412Le,
+      PixelFormat::P416Le,
     ];
     for fmt in supported {
       assert!(
@@ -766,44 +765,44 @@ mod tests {
 
     // AV_PIX_FMT_NONE sentinel and HW pix_fmts (those should never
     // surface post-transfer).
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::NONE));
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(PixelFormat::Unknown));
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX as i32
     )));
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_VAAPI as i32
     )));
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_CUDA as i32
     )));
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_D3D11 as i32
     )));
 
     // Common CPU formats software decoders produce that we don't
     // surface — drivers occasionally pick these for HW transfer too.
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_YUV420P as i32
     )));
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_YUV422P as i32
     )));
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_YUV444P as i32
     )));
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_YUVJ420P as i32
     )));
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_RGB24 as i32
     )));
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(
       AVPixelFormat::AV_PIX_FMT_BGR24 as i32
     )));
 
     // A future / unknown format value FFmpeg might invent — the helper
     // is closed-set so unknown integers are always rejected without
     // constructing the bindgen enum.
-    assert!(!is_supported_cpu_pix_fmt(PixelFormat::from_raw(99_999_999)));
+    assert!(!is_supported_cpu_pix_fmt(boundary::from_av_pixel_format(99_999_999)));
   }
 }

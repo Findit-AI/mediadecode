@@ -25,10 +25,14 @@
 //!   (monowhite / monoblack).
 //! - **Bayer** (BGGR / RGGB / GBRG / GRBG) at 8 / 10 / 12 / 14 / 16-bit.
 //! - **Paletted** (pal8).
-//! - **Hardware sentinels** (videotoolbox / vaapi / cuda / d3d11) —
-//!   these never reach a CPU-side consumer; they signal an opaque
-//!   `AVFrame` whose buffers live on the GPU. Included so backend
-//!   code can match on them before triggering a `transfer_data`.
+//!
+//! Hardware-frame markers (FFmpeg's `AV_PIX_FMT_VIDEOTOOLBOX` /
+//! `_VAAPI` / `_CUDA` / `_D3D11` / `_DRM_PRIME` / `_MEDIACODEC` /
+//! `_VULKAN`) are intentionally **not** in this enum: the unified
+//! vocabulary describes CPU-side decoded pixel data, and a frame
+//! carrying GPU-resident buffers must be transferred to a CPU format
+//! before reaching a `mediadecode::VideoFrame` consumer. Backend
+//! crates handle the HW path internally.
 //!
 //! Stable wire format: [`Self::to_u32`] returns the underlying
 //! discriminant (this enum is `#[repr(u32)]`); [`Self::from_u32`]
@@ -580,34 +584,6 @@ pub enum PixelFormat {
   /// Bayer GRBG pattern, 16-bit little-endian.
   #[display("bayer_grbg16le")]
   BayerGrbg16Le = 943,
-
-  // ===================================================================
-  // Hardware sentinels — frames whose buffers live on the GPU.
-  // After `av_hwframe_transfer_data`, the format becomes one of the
-  // CPU formats above (NV12, P010LE, etc.). Included so backend code
-  // can `match` on them before triggering the transfer.
-  // ===================================================================
-  /// VideoToolbox hardware frame (Apple).
-  #[display("videotoolbox")]
-  VideoToolbox = 1000,
-  /// VAAPI hardware frame (Linux Intel/AMD).
-  #[display("vaapi")]
-  Vaapi = 1001,
-  /// CUDA hardware frame (NVIDIA).
-  #[display("cuda")]
-  Cuda = 1002,
-  /// D3D11VA hardware frame (Windows).
-  #[display("d3d11")]
-  D3d11 = 1003,
-  /// DRM PRIME hardware frame (Linux DRM).
-  #[display("drm_prime")]
-  DrmPrime = 1004,
-  /// MediaCodec hardware frame (Android).
-  #[display("mediacodec")]
-  MediaCodec = 1005,
-  /// Vulkan hardware frame.
-  #[display("vulkan")]
-  Vulkan = 1006,
 }
 
 impl Default for PixelFormat {
@@ -802,35 +778,8 @@ impl PixelFormat {
       941 => Self::BayerRggb16Le,
       942 => Self::BayerGbrg16Le,
       943 => Self::BayerGrbg16Le,
-      // Hardware sentinels.
-      1000 => Self::VideoToolbox,
-      1001 => Self::Vaapi,
-      1002 => Self::Cuda,
-      1003 => Self::D3d11,
-      1004 => Self::DrmPrime,
-      1005 => Self::MediaCodec,
-      1006 => Self::Vulkan,
       _ => Self::Unknown,
     }
-  }
-
-  /// Returns `true` for hardware-backed formats (`videotoolbox` /
-  /// `vaapi` / `cuda` / `d3d11` / `drm_prime` / `mediacodec` /
-  /// `vulkan`). These never expose CPU-side pixel data; consumers must
-  /// trigger an `av_hwframe_transfer_data` (or platform equivalent) to
-  /// download into one of the CPU formats.
-  #[inline]
-  pub const fn is_hardware(self) -> bool {
-    matches!(
-      self,
-      Self::VideoToolbox
-        | Self::Vaapi
-        | Self::Cuda
-        | Self::D3d11
-        | Self::DrmPrime
-        | Self::MediaCodec
-        | Self::Vulkan,
-    )
   }
 
   /// Returns `true` for Bayer-mosaic formats (any pattern, any bit
@@ -904,8 +853,6 @@ mod tests {
       PixelFormat::Pal8,
       PixelFormat::BayerBggr8,
       PixelFormat::BayerRggb16Le,
-      PixelFormat::VideoToolbox,
-      PixelFormat::Vulkan,
     ];
     for fmt in all {
       assert_eq!(
@@ -929,18 +876,7 @@ mod tests {
     assert_eq!(format!("{}", PixelFormat::P010Le), "p010le");
     assert_eq!(format!("{}", PixelFormat::Rgba64Le), "rgba64le");
     assert_eq!(format!("{}", PixelFormat::BayerBggr12Le), "bayer_bggr12le");
-    assert_eq!(format!("{}", PixelFormat::VideoToolbox), "videotoolbox");
     assert_eq!(format!("{}", PixelFormat::Unknown), "unknown");
-  }
-
-  #[test]
-  fn is_hardware_partition() {
-    assert!(PixelFormat::VideoToolbox.is_hardware());
-    assert!(PixelFormat::Cuda.is_hardware());
-    assert!(PixelFormat::Vulkan.is_hardware());
-    assert!(!PixelFormat::Yuv420p.is_hardware());
-    assert!(!PixelFormat::Nv12.is_hardware());
-    assert!(!PixelFormat::Unknown.is_hardware());
   }
 
   #[test]

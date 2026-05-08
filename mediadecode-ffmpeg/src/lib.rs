@@ -47,6 +47,7 @@
 mod adapter;
 mod audio;
 mod backend;
+pub mod boundary;
 mod buffer;
 pub mod channel_layout;
 mod codec_id;
@@ -56,7 +57,6 @@ mod error;
 pub mod extras;
 mod ffi;
 mod frame;
-pub mod pix_fmt;
 mod sample_format;
 mod subtitle;
 mod video;
@@ -64,6 +64,7 @@ mod video;
 pub use adapter::Ffmpeg;
 pub use audio::{AudioDecodeError, FfmpegAudioStreamDecoder};
 pub use backend::Backend;
+pub use boundary::{from_av_pixel_format, is_hardware_pix_fmt};
 pub use buffer::FfmpegBuffer;
 pub use channel_layout::{
   audio_channel_layout_from_ffmpeg, audio_channel_order_kind_from_ffmpeg,
@@ -73,7 +74,6 @@ pub use codec_id::CodecId;
 pub use decoder::VideoDecoder;
 pub use error::{Error, Result};
 pub use frame::Frame;
-pub use pix_fmt::PixelFormat;
 pub use sample_format::SampleFormat;
 pub use subtitle::{FfmpegSubtitleDecoder, SubtitleDecodeError};
 pub use video::{FfmpegVideoStreamDecoder, VideoDecodeError};
