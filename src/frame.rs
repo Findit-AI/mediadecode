@@ -128,6 +128,130 @@ impl<B> Plane<B> {
     }
 }
 
+use crate::Timestamp;
+use crate::adapter::VideoAdapter;
+use crate::color::ColorInfo;
+
+/// A decoded video frame.
+///
+/// `width` / `height` are the **coded** dimensions; `visible_rect`
+/// (when present) is the displayable subregion (FFmpeg crop /
+/// WebCodecs `visibleRect` / ProRes RAW `CleanAperture`).
+///
+/// `plane_count` is the number of populated entries in `planes`.
+/// Four slots cover every realistic format: NV12 = 2, YUV420P = 3,
+/// YUVA / packed-with-alpha = 4, packed RGB / Bayer CFA = 1.
+pub struct VideoFrame<A: VideoAdapter, B: AsRef<[u8]>> {
+    pts:           Option<Timestamp>,
+    duration:      Option<Timestamp>,
+    width:         u32,
+    height:        u32,
+    visible_rect:  Option<Rect>,
+    pixel_format:  A::PixelFormat,
+    plane_count:   u8,
+    planes:        [Plane<B>; 4],
+    color:         ColorInfo,
+    extra:         A::FrameExtra,
+}
+
+impl<A: VideoAdapter, B: AsRef<[u8]>> VideoFrame<A, B> {
+    /// Constructs a `VideoFrame`. Timestamps default to `None`,
+    /// `visible_rect` to `None`, color to `ColorInfo::UNSPECIFIED`.
+    #[inline]
+    pub fn new(
+        width: u32,
+        height: u32,
+        pixel_format: A::PixelFormat,
+        planes: [Plane<B>; 4],
+        plane_count: u8,
+        extra: A::FrameExtra,
+    ) -> Self {
+        Self {
+            pts: None,
+            duration: None,
+            width,
+            height,
+            visible_rect: None,
+            pixel_format,
+            plane_count,
+            planes,
+            color: ColorInfo::UNSPECIFIED,
+            extra,
+        }
+    }
+
+    /// Returns the presentation timestamp.
+    #[inline]
+    pub const fn pts(&self) -> Option<Timestamp> { self.pts }
+    /// Returns the duration.
+    #[inline]
+    pub const fn duration(&self) -> Option<Timestamp> { self.duration }
+    /// Returns the coded width.
+    #[inline]
+    pub const fn width(&self) -> u32 { self.width }
+    /// Returns the coded height.
+    #[inline]
+    pub const fn height(&self) -> u32 { self.height }
+    /// Returns the visible / clean-aperture rectangle, if any.
+    #[inline]
+    pub const fn visible_rect(&self) -> Option<Rect> { self.visible_rect }
+    /// Returns the pixel format identifier.
+    #[inline]
+    pub fn pixel_format(&self) -> A::PixelFormat { self.pixel_format }
+    /// Returns the populated plane count.
+    #[inline]
+    pub const fn plane_count(&self) -> u8 { self.plane_count }
+    /// Returns the populated planes as a slice.
+    #[inline]
+    pub fn planes(&self) -> &[Plane<B>] {
+        &self.planes[..self.plane_count as usize]
+    }
+    /// Returns one plane by index, or `None` if out of range.
+    #[inline]
+    pub fn plane(&self, i: usize) -> Option<&Plane<B>> {
+        if i < self.plane_count as usize {
+            self.planes.get(i)
+        } else {
+            None
+        }
+    }
+    /// Returns the color metadata.
+    #[inline]
+    pub const fn color(&self) -> ColorInfo { self.color }
+    /// Returns the backend extras.
+    #[inline]
+    pub const fn extra(&self) -> &A::FrameExtra { &self.extra }
+    /// Returns a mutable reference to the backend extras.
+    #[inline]
+    pub fn extra_mut(&mut self) -> &mut A::FrameExtra { &mut self.extra }
+
+    /// Sets the PTS (consuming builder).
+    #[inline]
+    pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self { self.pts = v; self }
+    /// Sets the duration (consuming builder).
+    #[inline]
+    pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self { self.duration = v; self }
+    /// Sets the visible rect (consuming builder).
+    #[inline]
+    pub const fn with_visible_rect(mut self, v: Option<Rect>) -> Self { self.visible_rect = v; self }
+    /// Sets the color metadata (consuming builder).
+    #[inline]
+    pub const fn with_color(mut self, v: ColorInfo) -> Self { self.color = v; self }
+
+    /// Sets the PTS in place.
+    #[inline]
+    pub const fn set_pts(&mut self, v: Option<Timestamp>) -> &mut Self { self.pts = v; self }
+    /// Sets the duration in place.
+    #[inline]
+    pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self { self.duration = v; self }
+    /// Sets the visible rect in place.
+    #[inline]
+    pub const fn set_visible_rect(&mut self, v: Option<Rect>) -> &mut Self { self.visible_rect = v; self }
+    /// Sets the color metadata in place.
+    #[inline]
+    pub const fn set_color(&mut self, v: ColorInfo) -> &mut Self { self.color = v; self }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +318,57 @@ mod tests {
         let p: Plane<&[u8]> = Plane::new(&buf, 4);
         let recovered = p.into_data();
         assert_eq!(recovered, &buf[..]);
+    }
+
+    use crate::adapter::VideoAdapter;
+    use crate::color::{ColorInfo, ColorMatrix};
+
+    struct VLoop;
+    impl VideoAdapter for VLoop {
+        type CodecId = u32;
+        type PixelFormat = u32;
+        type PacketExtra = ();
+        type FrameExtra = ();
+    }
+
+    fn empty_planes() -> [Plane<&'static [u8]>; 4] {
+        [
+            Plane::new(&[][..], 0),
+            Plane::new(&[][..], 0),
+            Plane::new(&[][..], 0),
+            Plane::new(&[][..], 0),
+        ]
+    }
+
+    #[test]
+    fn video_frame_construct_and_access() {
+        let f: VideoFrame<VLoop, &[u8]> =
+            VideoFrame::new(1920, 1080, /*pix_fmt=*/ 0u32, empty_planes(), 1, ());
+        assert_eq!(f.width(), 1920);
+        assert_eq!(f.height(), 1080);
+        assert_eq!(f.plane_count(), 1);
+        assert!(f.color().matrix().is_bt_709());
+        assert_eq!(f.planes().len(), 1);
+    }
+
+    #[test]
+    fn video_frame_plane_index_clamped() {
+        let f: VideoFrame<VLoop, &[u8]> =
+            VideoFrame::new(64, 64, 0u32, empty_planes(), 2, ());
+        assert!(f.plane(0).is_some());
+        assert!(f.plane(1).is_some());
+        assert!(f.plane(2).is_none());
+        assert!(f.plane(3).is_none());
+    }
+
+    #[test]
+    fn video_frame_builders_chain() {
+        let ci = ColorInfo::UNSPECIFIED.with_matrix(ColorMatrix::Bt2020Ncl);
+        let f: VideoFrame<VLoop, &[u8]> =
+            VideoFrame::new(64, 64, 0u32, empty_planes(), 1, ())
+                .with_color(ci)
+                .with_visible_rect(Some(Rect::new(0, 0, 64, 64)));
+        assert!(f.color().matrix().is_bt_2020_ncl());
+        assert!(f.visible_rect().is_some());
     }
 }
