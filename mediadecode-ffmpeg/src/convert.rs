@@ -19,7 +19,7 @@ use mediadecode::{
 };
 
 use crate::{
-  Ffmpeg, FfmpegBuffer,
+  FfmpegBuffer,
   extras::{PictureType, SideDataEntry, VideoFrameExtra},
   frame::{is_supported_cpu_pix_fmt, plane_height_for},
   pix_fmt::PixelFormat,
@@ -81,7 +81,7 @@ impl core::error::Error for ConvertError {}
 pub unsafe fn av_frame_to_video_frame(
   av_frame: *const AVFrame,
   time_base: Timebase,
-) -> Result<VideoFrame<Ffmpeg, FfmpegBuffer>, ConvertError> {
+) -> Result<VideoFrame<PixelFormat, VideoFrameExtra, FfmpegBuffer>, ConvertError> {
   if av_frame.is_null() {
     return Err(ConvertError::NullFrame);
   }

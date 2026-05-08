@@ -4,13 +4,7 @@
 //! `VideoFrame` / `AudioFrame` / `SubtitleFrame` types land in later
 //! tasks.
 
-use crate::{
-  Timestamp,
-  adapter::{AudioAdapter, VideoAdapter},
-  color::ColorInfo,
-};
-
-use crate::{adapter::SubtitleAdapter, subtitle::SubtitlePayload};
+use crate::{Timestamp, color::ColorInfo, subtitle::SubtitlePayload};
 
 /// An axis-aligned integer rectangle.
 ///
@@ -175,6 +169,14 @@ impl<B> Plane<B> {
 
 /// A decoded video frame.
 ///
+/// Generic parameters:
+/// - `P` — pixel-format identifier (e.g. `mediadecode_ffmpeg::PixelFormat`).
+/// - `E` — backend-specific frame extras (HDR mastering display, RAW
+///   sensor metadata, picture type, …).
+/// - `D` — plane data buffer type. Each populated `Plane<D>` carries one
+///   plane's bytes; `D: AsRef<[u8]>` at the use site (e.g. `Bytes`,
+///   `&'a [u8]`, refcounted FFmpeg buffer).
+///
 /// `width` / `height` are the **coded** dimensions; `visible_rect`
 /// (when present) is the displayable subregion (FFmpeg crop /
 /// WebCodecs `visibleRect` / ProRes RAW `CleanAperture`).
@@ -182,30 +184,30 @@ impl<B> Plane<B> {
 /// `plane_count` is the number of populated entries in `planes`.
 /// Four slots cover every realistic format: NV12 = 2, YUV420P = 3,
 /// YUVA / packed-with-alpha = 4, packed RGB / Bayer CFA = 1.
-pub struct VideoFrame<A: VideoAdapter, B: AsRef<[u8]>> {
+pub struct VideoFrame<P, E, D> {
   pts: Option<Timestamp>,
   duration: Option<Timestamp>,
   width: u32,
   height: u32,
   visible_rect: Option<Rect>,
-  pixel_format: A::PixelFormat,
+  pixel_format: P,
   plane_count: u8,
-  planes: [Plane<B>; 4],
+  planes: [Plane<D>; 4],
   color: ColorInfo,
-  extra: A::FrameExtra,
+  extra: E,
 }
 
-impl<A: VideoAdapter, B: AsRef<[u8]>> VideoFrame<A, B> {
+impl<P, E, D> VideoFrame<P, E, D> {
   /// Constructs a `VideoFrame`. Timestamps default to `None`,
   /// `visible_rect` to `None`, color to `ColorInfo::UNSPECIFIED`.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn new(
+  pub const fn new(
     width: u32,
     height: u32,
-    pixel_format: A::PixelFormat,
-    planes: [Plane<B>; 4],
+    pixel_format: P,
+    planes: [Plane<D>; 4],
     plane_count: u8,
-    extra: A::FrameExtra,
+    extra: E,
   ) -> Self {
     Self {
       pts: None,
@@ -246,10 +248,10 @@ impl<A: VideoAdapter, B: AsRef<[u8]>> VideoFrame<A, B> {
   pub const fn visible_rect(&self) -> Option<Rect> {
     self.visible_rect
   }
-  /// Returns the pixel format identifier.
+  /// Returns a reference to the pixel format identifier.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn pixel_format(&self) -> A::PixelFormat {
-    self.pixel_format
+  pub const fn pixel_format(&self) -> &P {
+    &self.pixel_format
   }
   /// Returns the populated plane count.
   #[cfg_attr(not(tarpaulin), inline(always))]
@@ -258,12 +260,12 @@ impl<A: VideoAdapter, B: AsRef<[u8]>> VideoFrame<A, B> {
   }
   /// Returns the populated planes as a slice.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn planes(&self) -> &[Plane<B>] {
+  pub fn planes(&self) -> &[Plane<D>] {
     &self.planes[..self.plane_count as usize]
   }
   /// Returns one plane by index, or `None` if out of range.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn plane(&self, i: usize) -> Option<&Plane<B>> {
+  pub fn plane(&self, i: usize) -> Option<&Plane<D>> {
     if i < self.plane_count as usize {
       self.planes.get(i)
     } else {
@@ -277,12 +279,12 @@ impl<A: VideoAdapter, B: AsRef<[u8]>> VideoFrame<A, B> {
   }
   /// Returns the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn extra(&self) -> &A::FrameExtra {
+  pub const fn extra(&self) -> &E {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn extra_mut(&mut self) -> &mut A::FrameExtra {
+  pub const fn extra_mut(&mut self) -> &mut E {
     &mut self.extra
   }
 
@@ -339,37 +341,43 @@ impl<A: VideoAdapter, B: AsRef<[u8]>> VideoFrame<A, B> {
 
 /// A decoded audio frame.
 ///
+/// Generic parameters:
+/// - `S` — sample-format identifier.
+/// - `C` — channel layout (e.g. `mediadecode::channel::AudioChannelLayout`).
+/// - `E` — backend-specific frame extras.
+/// - `D` — plane data buffer type (`D: AsRef<[u8]>` at the use site).
+///
 /// `nb_samples` is **per channel**. `plane_count` is `1` for packed
 /// (interleaved) formats and `channel_count` for planar; the
-/// `[Plane; 8]` cap mirrors FFmpeg's `AV_NUM_DATA_POINTERS`.
-/// Channel counts above 8 surface their extra channels through
-/// `A::FrameExtra` (rare in practice).
-pub struct AudioFrame<A: AudioAdapter, B: AsRef<[u8]>> {
+/// `[Plane; 8]` cap mirrors FFmpeg's `AV_NUM_DATA_POINTERS`. Channel
+/// counts above 8 surface their extra channels through `E` (rare in
+/// practice).
+pub struct AudioFrame<S, C, E, D> {
   pts: Option<Timestamp>,
   duration: Option<Timestamp>,
   sample_rate: u32,
   nb_samples: u32,
   channel_count: u8,
-  sample_format: A::SampleFormat,
-  channel_layout: A::ChannelLayout,
+  sample_format: S,
+  channel_layout: C,
   plane_count: u8,
-  planes: [Plane<B>; 8],
-  extra: A::FrameExtra,
+  planes: [Plane<D>; 8],
+  extra: E,
 }
 
-impl<A: AudioAdapter, B: AsRef<[u8]>> AudioFrame<A, B> {
+impl<S, C, E, D> AudioFrame<S, C, E, D> {
   /// Constructs an `AudioFrame`.
   #[allow(clippy::too_many_arguments)]
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn new(
+  pub const fn new(
     sample_rate: u32,
     nb_samples: u32,
     channel_count: u8,
-    sample_format: A::SampleFormat,
-    channel_layout: A::ChannelLayout,
-    planes: [Plane<B>; 8],
+    sample_format: S,
+    channel_layout: C,
+    planes: [Plane<D>; 8],
     plane_count: u8,
-    extra: A::FrameExtra,
+    extra: E,
   ) -> Self {
     Self {
       pts: None,
@@ -410,14 +418,14 @@ impl<A: AudioAdapter, B: AsRef<[u8]>> AudioFrame<A, B> {
   pub const fn channel_count(&self) -> u8 {
     self.channel_count
   }
-  /// Returns the sample format identifier.
+  /// Returns a reference to the sample format identifier.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn sample_format(&self) -> A::SampleFormat {
-    self.sample_format
+  pub const fn sample_format(&self) -> &S {
+    &self.sample_format
   }
   /// Returns the channel layout identifier.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn channel_layout(&self) -> &A::ChannelLayout {
+  pub const fn channel_layout(&self) -> &C {
     &self.channel_layout
   }
   /// Returns the populated plane count.
@@ -427,17 +435,17 @@ impl<A: AudioAdapter, B: AsRef<[u8]>> AudioFrame<A, B> {
   }
   /// Returns the populated planes as a slice.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn planes(&self) -> &[Plane<B>] {
+  pub fn planes(&self) -> &[Plane<D>] {
     &self.planes[..self.plane_count as usize]
   }
   /// Returns the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn extra(&self) -> &A::FrameExtra {
+  pub const fn extra(&self) -> &E {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn extra_mut(&mut self) -> &mut A::FrameExtra {
+  pub const fn extra_mut(&mut self) -> &mut E {
     &mut self.extra
   }
 
@@ -469,17 +477,21 @@ impl<A: AudioAdapter, B: AsRef<[u8]>> AudioFrame<A, B> {
 }
 
 /// A decoded subtitle frame.
-pub struct SubtitleFrame<A: SubtitleAdapter, B: AsRef<[u8]>> {
+///
+/// Generic parameters:
+/// - `E` — backend-specific frame extras.
+/// - `D` — payload data buffer type (`D: AsRef<[u8]>` at the use site).
+pub struct SubtitleFrame<E, D> {
   pts: Option<Timestamp>,
   duration: Option<Timestamp>,
-  payload: SubtitlePayload<B>,
-  extra: A::FrameExtra,
+  payload: SubtitlePayload<D>,
+  extra: E,
 }
 
-impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitleFrame<A, B> {
+impl<E, D> SubtitleFrame<E, D> {
   /// Constructs a `SubtitleFrame`.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn new(payload: SubtitlePayload<B>, extra: A::FrameExtra) -> Self {
+  pub const fn new(payload: SubtitlePayload<D>, extra: E) -> Self {
     Self {
       pts: None,
       duration: None,
@@ -500,17 +512,17 @@ impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitleFrame<A, B> {
   }
   /// Returns the payload.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn payload(&self) -> &SubtitlePayload<B> {
+  pub const fn payload(&self) -> &SubtitlePayload<D> {
     &self.payload
   }
   /// Returns the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn extra(&self) -> &A::FrameExtra {
+  pub const fn extra(&self) -> &E {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub const fn extra_mut(&mut self) -> &mut A::FrameExtra {
+  pub const fn extra_mut(&mut self) -> &mut E {
     &mut self.extra
   }
 
@@ -610,8 +622,9 @@ mod tests {
   }
 
   use crate::{
-    adapter::VideoAdapter,
+    adapter::{AudioAdapter, SubtitleAdapter, VideoAdapter},
     color::{ColorInfo, ColorMatrix},
+    subtitle::SubtitlePayload,
   };
 
   struct VLoop;
@@ -633,7 +646,9 @@ mod tests {
 
   #[test]
   fn video_frame_construct_and_access() {
-    let f: VideoFrame<VLoop, &[u8]> =
+    // VideoFrame<P, E, D>: P=u32 (PixelFormat), E=VLoop (adapter ZST),
+    // D=&[u8] (plane buffer).
+    let f: VideoFrame<u32, (), &[u8]> =
       VideoFrame::new(1920, 1080, /*pix_fmt=*/ 0u32, empty_planes(), 1, ());
     assert_eq!(f.width(), 1920);
     assert_eq!(f.height(), 1080);
@@ -644,7 +659,8 @@ mod tests {
 
   #[test]
   fn video_frame_plane_index_clamped() {
-    let f: VideoFrame<VLoop, &[u8]> = VideoFrame::new(64, 64, 0u32, empty_planes(), 2, ());
+    let f: VideoFrame<u32, (), &[u8]> =
+      VideoFrame::new(64, 64, 0u32, empty_planes(), 2, ());
     assert!(f.plane(0).is_some());
     assert!(f.plane(1).is_some());
     assert!(f.plane(2).is_none());
@@ -654,9 +670,10 @@ mod tests {
   #[test]
   fn video_frame_builders_chain() {
     let ci = ColorInfo::UNSPECIFIED.with_matrix(ColorMatrix::Bt2020Ncl);
-    let f: VideoFrame<VLoop, &[u8]> = VideoFrame::new(64, 64, 0u32, empty_planes(), 1, ())
-      .with_color(ci)
-      .with_visible_rect(Some(Rect::new(0, 0, 64, 64)));
+    let f: VideoFrame<u32, (), &[u8]> =
+      VideoFrame::new(64, 64, 0u32, empty_planes(), 1, ())
+        .with_color(ci)
+        .with_visible_rect(Some(Rect::new(0, 0, 64, 64)));
     assert!(f.color().matrix().is_bt_2020_ncl());
     assert!(f.visible_rect().is_some());
   }
@@ -685,7 +702,9 @@ mod tests {
 
   #[test]
   fn audio_frame_construct_and_access() {
-    let f: AudioFrame<ALoop, &[u8]> = AudioFrame::new(
+    // AudioFrame<S, C, E, D>: S=u32 (SampleFormat), C=u32 (ChannelLayout),
+    // E=ALoop (adapter ZST), D=&[u8].
+    let f: AudioFrame<u32, u32, (), &[u8]> = AudioFrame::new(
       48_000,
       1024,
       2,
@@ -702,8 +721,6 @@ mod tests {
     assert_eq!(f.planes().len(), 2);
   }
 
-  use crate::{adapter::SubtitleAdapter, subtitle::SubtitlePayload};
-
   struct SLoop;
   impl SubtitleAdapter for SLoop {
     type CodecId = u32;
@@ -717,7 +734,8 @@ mod tests {
       text: b"hi",
       language: None,
     };
-    let f: SubtitleFrame<SLoop, &[u8]> = SubtitleFrame::new(payload, ());
+    // SubtitleFrame<E, D>: E=SLoop, D=&[u8].
+    let f: SubtitleFrame<(), &[u8]> = SubtitleFrame::new(payload, ());
     match f.payload() {
       SubtitlePayload::Text { text, .. } => assert_eq!(text, &&b"hi"[..]),
       #[cfg(feature = "alloc")]

@@ -73,7 +73,7 @@ impl VideoStreamDecoder for FfmpegVideoStreamDecoder {
 
   fn send_packet(
     &mut self,
-    _packet: &VideoPacket<Self::Adapter, Self::Buffer>,
+    _packet: &VideoPacket<crate::extras::VideoPacketExtra, Self::Buffer>,
   ) -> Result<(), Self::Error> {
     // Building an `ffmpeg::Packet` from the mediadecode VideoPacket
     // requires a small dance: we need to expose the FfmpegBuffer's
@@ -86,7 +86,11 @@ impl VideoStreamDecoder for FfmpegVideoStreamDecoder {
 
   fn receive_frame(
     &mut self,
-    dst: &mut VideoFrame<Self::Adapter, Self::Buffer>,
+    dst: &mut VideoFrame<
+      crate::pix_fmt::PixelFormat,
+      crate::extras::VideoFrameExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error> {
     self
       .inner

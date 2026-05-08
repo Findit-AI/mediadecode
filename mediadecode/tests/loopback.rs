@@ -58,10 +58,13 @@ impl VideoStreamDecoder for VideoStream {
   type Adapter = Loop;
   type Buffer = &'static [u8];
   type Error = Eof;
-  fn send_packet(&mut self, _: &VideoPacket<Loop, &'static [u8]>) -> Result<(), Eof> {
+  fn send_packet(&mut self, _: &VideoPacket<(), &'static [u8]>) -> Result<(), Eof> {
     Ok(())
   }
-  fn receive_frame(&mut self, _: &mut VideoFrame<Loop, &'static [u8]>) -> Result<(), Eof> {
+  fn receive_frame(
+    &mut self,
+    _: &mut VideoFrame<u32, (), &'static [u8]>,
+  ) -> Result<(), Eof> {
     Err(Eof)
   }
   fn send_eof(&mut self) -> Result<(), Eof> {
@@ -94,7 +97,11 @@ impl VideoFrameSource for VideoSource {
   fn clip_meta(&self) -> &() {
     &()
   }
-  fn decode_frame(&mut self, _: u64, _: &mut VideoFrame<Loop, &'static [u8]>) -> Result<(), Eof> {
+  fn decode_frame(
+    &mut self,
+    _: u64,
+    _: &mut VideoFrame<u32, (), &'static [u8]>,
+  ) -> Result<(), Eof> {
     Err(Eof)
   }
 }
@@ -104,10 +111,13 @@ impl AudioStreamDecoder for AudioStream {
   type Adapter = Loop;
   type Buffer = &'static [u8];
   type Error = Eof;
-  fn send_packet(&mut self, _: &AudioPacket<Loop, &'static [u8]>) -> Result<(), Eof> {
+  fn send_packet(&mut self, _: &AudioPacket<(), &'static [u8]>) -> Result<(), Eof> {
     Ok(())
   }
-  fn receive_frame(&mut self, _: &mut AudioFrame<Loop, &'static [u8]>) -> Result<(), Eof> {
+  fn receive_frame(
+    &mut self,
+    _: &mut AudioFrame<u32, u32, (), &'static [u8]>,
+  ) -> Result<(), Eof> {
     Err(Eof)
   }
   fn send_eof(&mut self) -> Result<(), Eof> {
@@ -140,7 +150,7 @@ impl AudioFrameSource for AudioSource {
     &mut self,
     _: u64,
     _: u32,
-    _: &mut AudioFrame<Loop, &'static [u8]>,
+    _: &mut AudioFrame<u32, u32, (), &'static [u8]>,
   ) -> Result<(), Eof> {
     Err(Eof)
   }
@@ -151,10 +161,10 @@ impl SubtitleDecoder for SubtitleStream {
   type Adapter = Loop;
   type Buffer = &'static [u8];
   type Error = Eof;
-  fn send_packet(&mut self, _: &SubtitlePacket<Loop, &'static [u8]>) -> Result<(), Eof> {
+  fn send_packet(&mut self, _: &SubtitlePacket<(), &'static [u8]>) -> Result<(), Eof> {
     Ok(())
   }
-  fn receive_frame(&mut self, _: &mut SubtitleFrame<Loop, &'static [u8]>) -> Result<(), Eof> {
+  fn receive_frame(&mut self, _: &mut SubtitleFrame<(), &'static [u8]>) -> Result<(), Eof> {
     Err(Eof)
   }
   fn send_eof(&mut self) -> Result<(), Eof> {
@@ -168,7 +178,9 @@ impl SubtitleDecoder for SubtitleStream {
 #[test]
 fn video_stream_round_trip() {
   let mut s = VideoStream;
-  let pkt: VideoPacket<Loop, &'static [u8]> = VideoPacket::new(b"compressed" as &[u8], ())
+  // VideoPacket's E slot is Loop (the adapter ZST flows through as
+  // the extras payload — that's the pattern the decoder trait uses).
+  let pkt: VideoPacket<(), &'static [u8]> = VideoPacket::new(b"compressed" as &[u8], ())
     .with_pts(Some(Timestamp::new(
       0,
       Timebase::new(1, NonZeroU32::new(1000).unwrap()),
@@ -182,7 +194,8 @@ fn video_stream_round_trip() {
     Plane::new(&b""[..], 0),
     Plane::new(&b""[..], 0),
   ];
-  let mut dst: VideoFrame<Loop, &'static [u8]> =
+  // VideoFrame<P, E, D>: P=u32 (Loop's PixelFormat), E=Loop, D=&[u8].
+  let mut dst: VideoFrame<u32, (), &'static [u8]> =
     VideoFrame::new(2, 2, /*pix_fmt=*/ 0u32, planes, 1, ())
       .with_visible_rect(Some(Rect::new(0, 0, 2, 2)))
       .with_color(
@@ -219,14 +232,15 @@ fn video_source_round_trip() {
     Plane::new(&b""[..], 0),
     Plane::new(&b""[..], 0),
   ];
-  let mut dst: VideoFrame<Loop, &'static [u8]> = VideoFrame::new(64, 64, 0u32, planes, 1, ());
+  let mut dst: VideoFrame<u32, (), &'static [u8]> =
+    VideoFrame::new(64, 64, 0u32, planes, 1, ());
   assert!(src.decode_frame(0, &mut dst).is_err());
 }
 
 #[test]
 fn audio_stream_round_trip() {
   let mut s = AudioStream;
-  let pkt: AudioPacket<Loop, &'static [u8]> = AudioPacket::new(b"compressed", ());
+  let pkt: AudioPacket<(), &'static [u8]> = AudioPacket::new(b"compressed" as &[u8], ());
   assert!(s.send_packet(&pkt).is_ok());
 
   let planes = [
@@ -239,7 +253,8 @@ fn audio_stream_round_trip() {
     Plane::new(&b""[..], 0),
     Plane::new(&b""[..], 0),
   ];
-  let mut dst: AudioFrame<Loop, &'static [u8]> = AudioFrame::new(
+  // AudioFrame<S, C, E, D>: S=u32, C=u32, E=Loop, D=&[u8].
+  let mut dst: AudioFrame<u32, u32, (), &'static [u8]> = AudioFrame::new(
     48_000,
     1024,
     2,
@@ -264,13 +279,13 @@ fn audio_source_metadata() {
 #[test]
 fn subtitle_stream_round_trip() {
   let mut s = SubtitleStream;
-  let pkt: SubtitlePacket<Loop, &'static [u8]> = SubtitlePacket::new(b"hi", ());
+  let pkt: SubtitlePacket<(), &'static [u8]> = SubtitlePacket::new(b"hi" as &[u8], ());
   assert!(s.send_packet(&pkt).is_ok());
 
   let payload: SubtitlePayload<&'static [u8]> = SubtitlePayload::Text {
     text: b"hi",
     language: Some(*b"eng"),
   };
-  let mut dst: SubtitleFrame<Loop, &'static [u8]> = SubtitleFrame::new(payload, ());
+  let mut dst: SubtitleFrame<(), &'static [u8]> = SubtitleFrame::new(payload, ());
   assert!(s.receive_frame(&mut dst).is_err());
 }

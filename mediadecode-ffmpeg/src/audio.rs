@@ -38,14 +38,19 @@ impl AudioStreamDecoder for FfmpegAudioStreamDecoder {
 
   fn send_packet(
     &mut self,
-    _packet: &AudioPacket<Self::Adapter, Self::Buffer>,
+    _packet: &AudioPacket<crate::extras::AudioPacketExtra, Self::Buffer>,
   ) -> Result<(), Self::Error> {
     Err(AudioDecodeError::NotImplemented)
   }
 
   fn receive_frame(
     &mut self,
-    _dst: &mut AudioFrame<Self::Adapter, Self::Buffer>,
+    _dst: &mut AudioFrame<
+      crate::sample_format::SampleFormat,
+      mediadecode::channel::AudioChannelLayout,
+      crate::extras::AudioFrameExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error> {
     Err(AudioDecodeError::NotImplemented)
   }

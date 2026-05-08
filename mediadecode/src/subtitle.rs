@@ -19,7 +19,7 @@ use core::fmt::Debug;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 #[derive(Debug, Clone)]
-pub struct BitmapRegion<B: AsRef<[u8]>> {
+pub struct BitmapRegion<B> {
   x: u32,
   y: u32,
   width: u32,
@@ -33,7 +33,7 @@ pub struct BitmapRegion<B: AsRef<[u8]>> {
 }
 
 #[cfg(feature = "alloc")]
-impl<B: AsRef<[u8]>> BitmapRegion<B> {
+impl<B> BitmapRegion<B> {
   /// Constructs a `BitmapRegion`.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn new(
@@ -94,7 +94,7 @@ impl<B: AsRef<[u8]>> BitmapRegion<B> {
 }
 
 /// Decoded subtitle payload — text or bitmap regions.
-pub enum SubtitlePayload<B: AsRef<[u8]>> {
+pub enum SubtitlePayload<B> {
   /// Text subtitle (UTF-8 in `text`; ISO 639-2 language tag optional).
   Text {
     /// UTF-8 text payload.
@@ -112,7 +112,7 @@ pub enum SubtitlePayload<B: AsRef<[u8]>> {
   },
 }
 
-impl<B: AsRef<[u8]> + Debug> Debug for SubtitlePayload<B> {
+impl<B: Debug> Debug for SubtitlePayload<B> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     match self {
       Self::Text { text, language } => f

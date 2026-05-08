@@ -33,14 +33,14 @@ impl SubtitleDecoder for FfmpegSubtitleDecoder {
 
   fn send_packet(
     &mut self,
-    _packet: &SubtitlePacket<Self::Adapter, Self::Buffer>,
+    _packet: &SubtitlePacket<crate::extras::SubtitlePacketExtra, Self::Buffer>,
   ) -> Result<(), Self::Error> {
     Err(SubtitleDecodeError::NotImplemented)
   }
 
   fn receive_frame(
     &mut self,
-    _dst: &mut SubtitleFrame<Self::Adapter, Self::Buffer>,
+    _dst: &mut SubtitleFrame<crate::extras::SubtitleFrameExtra, Self::Buffer>,
   ) -> Result<(), Self::Error> {
     Err(SubtitleDecodeError::NotImplemented)
   }

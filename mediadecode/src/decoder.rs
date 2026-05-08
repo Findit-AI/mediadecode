@@ -25,14 +25,21 @@ pub trait VideoStreamDecoder {
   /// Submits one compressed packet.
   fn send_packet(
     &mut self,
-    packet: &VideoPacket<Self::Adapter, Self::Buffer>,
+    packet: &VideoPacket<
+      <Self::Adapter as VideoAdapter>::PacketExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error>;
 
   /// Drains one decoded frame into `dst`. Backends signal "no
   /// frame ready" via a backend-specific `Error` variant.
   fn receive_frame(
     &mut self,
-    dst: &mut VideoFrame<Self::Adapter, Self::Buffer>,
+    dst: &mut VideoFrame<
+      <Self::Adapter as VideoAdapter>::PixelFormat,
+      <Self::Adapter as VideoAdapter>::FrameExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error>;
 
   /// Signals end-of-stream.
@@ -70,7 +77,11 @@ pub trait VideoFrameSource {
   fn decode_frame(
     &mut self,
     index: u64,
-    dst: &mut VideoFrame<Self::Adapter, Self::Buffer>,
+    dst: &mut VideoFrame<
+      <Self::Adapter as VideoAdapter>::PixelFormat,
+      <Self::Adapter as VideoAdapter>::FrameExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error>;
 }
 
@@ -85,12 +96,20 @@ pub trait AudioStreamDecoder {
   /// Submits a compressed audio packet.
   fn send_packet(
     &mut self,
-    packet: &AudioPacket<Self::Adapter, Self::Buffer>,
+    packet: &AudioPacket<
+      <Self::Adapter as AudioAdapter>::PacketExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error>;
   /// Drains a decoded frame.
   fn receive_frame(
     &mut self,
-    dst: &mut AudioFrame<Self::Adapter, Self::Buffer>,
+    dst: &mut AudioFrame<
+      <Self::Adapter as AudioAdapter>::SampleFormat,
+      <Self::Adapter as AudioAdapter>::ChannelLayout,
+      <Self::Adapter as AudioAdapter>::FrameExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error>;
   /// Signals EOF.
   fn send_eof(&mut self) -> Result<(), Self::Error>;
@@ -124,7 +143,12 @@ pub trait AudioFrameSource {
     &mut self,
     sample_offset: u64,
     sample_count: u32,
-    dst: &mut AudioFrame<Self::Adapter, Self::Buffer>,
+    dst: &mut AudioFrame<
+      <Self::Adapter as AudioAdapter>::SampleFormat,
+      <Self::Adapter as AudioAdapter>::ChannelLayout,
+      <Self::Adapter as AudioAdapter>::FrameExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error>;
 }
 
@@ -140,12 +164,18 @@ pub trait SubtitleDecoder {
   /// Submits a compressed subtitle packet.
   fn send_packet(
     &mut self,
-    packet: &SubtitlePacket<Self::Adapter, Self::Buffer>,
+    packet: &SubtitlePacket<
+      <Self::Adapter as SubtitleAdapter>::PacketExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error>;
   /// Drains a decoded subtitle frame.
   fn receive_frame(
     &mut self,
-    dst: &mut SubtitleFrame<Self::Adapter, Self::Buffer>,
+    dst: &mut SubtitleFrame<
+      <Self::Adapter as SubtitleAdapter>::FrameExtra,
+      Self::Buffer,
+    >,
   ) -> Result<(), Self::Error>;
   /// Signals EOF.
   fn send_eof(&mut self) -> Result<(), Self::Error>;
@@ -178,10 +208,13 @@ mod tests {
     type Buffer = &'static [u8];
     type Error = LoopError;
 
-    fn send_packet(&mut self, _: &VideoPacket<VLoop, &'static [u8]>) -> Result<(), LoopError> {
+    fn send_packet(&mut self, _: &VideoPacket<(), &'static [u8]>) -> Result<(), LoopError> {
       Ok(())
     }
-    fn receive_frame(&mut self, _: &mut VideoFrame<VLoop, &'static [u8]>) -> Result<(), LoopError> {
+    fn receive_frame(
+      &mut self,
+      _: &mut VideoFrame<u32, (), &'static [u8]>,
+    ) -> Result<(), LoopError> {
       Err(LoopError)
     }
     fn send_eof(&mut self) -> Result<(), LoopError> {
@@ -215,7 +248,7 @@ mod tests {
     fn decode_frame(
       &mut self,
       _: u64,
-      _: &mut VideoFrame<VLoop, &'static [u8]>,
+      _: &mut VideoFrame<u32, (), &'static [u8]>,
     ) -> Result<(), LoopError> {
       Err(LoopError)
     }
@@ -244,10 +277,13 @@ mod tests {
     type Adapter = ALoop;
     type Buffer = &'static [u8];
     type Error = LoopError;
-    fn send_packet(&mut self, _: &AudioPacket<ALoop, &'static [u8]>) -> Result<(), LoopError> {
+    fn send_packet(&mut self, _: &AudioPacket<(), &'static [u8]>) -> Result<(), LoopError> {
       Ok(())
     }
-    fn receive_frame(&mut self, _: &mut AudioFrame<ALoop, &'static [u8]>) -> Result<(), LoopError> {
+    fn receive_frame(
+      &mut self,
+      _: &mut AudioFrame<u32, u32, (), &'static [u8]>,
+    ) -> Result<(), LoopError> {
       Err(LoopError)
     }
     fn send_eof(&mut self) -> Result<(), LoopError> {
@@ -281,7 +317,7 @@ mod tests {
       &mut self,
       _: u64,
       _: u32,
-      _: &mut AudioFrame<ALoop, &'static [u8]>,
+      _: &mut AudioFrame<u32, u32, (), &'static [u8]>,
     ) -> Result<(), LoopError> {
       Err(LoopError)
     }
@@ -308,12 +344,12 @@ mod tests {
     type Adapter = SLoop;
     type Buffer = &'static [u8];
     type Error = LoopError;
-    fn send_packet(&mut self, _: &SubtitlePacket<SLoop, &'static [u8]>) -> Result<(), LoopError> {
+    fn send_packet(&mut self, _: &SubtitlePacket<(), &'static [u8]>) -> Result<(), LoopError> {
       Ok(())
     }
     fn receive_frame(
       &mut self,
-      _: &mut SubtitleFrame<SLoop, &'static [u8]>,
+      _: &mut SubtitleFrame<(), &'static [u8]>,
     ) -> Result<(), LoopError> {
       Err(LoopError)
     }
