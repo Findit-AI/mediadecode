@@ -127,6 +127,31 @@ pub trait AudioFrameSource {
     ) -> Result<(), Self::Error>;
 }
 
+/// Push-style subtitle decoder. (No pull-style subtitle decoders
+/// exist in the wild — subtitle streams are linear and small.)
+pub trait SubtitleDecoder {
+    /// Backend vocabulary.
+    type Adapter: SubtitleAdapter;
+    /// Buffer type.
+    type Buffer: AsRef<[u8]>;
+    /// Decoder-specific error.
+    type Error;
+    /// Submits a compressed subtitle packet.
+    fn send_packet(
+        &mut self,
+        packet: &SubtitlePacket<Self::Adapter, Self::Buffer>,
+    ) -> Result<(), Self::Error>;
+    /// Drains a decoded subtitle frame.
+    fn receive_frame(
+        &mut self,
+        dst: &mut SubtitleFrame<Self::Adapter, Self::Buffer>,
+    ) -> Result<(), Self::Error>;
+    /// Signals EOF.
+    fn send_eof(&mut self) -> Result<(), Self::Error>;
+    /// Flushes internal state.
+    fn flush(&mut self) -> Result<(), Self::Error>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +257,32 @@ mod tests {
         fn _source<D: AudioFrameSource>() {}
         _stream::<LoopAudioStream>();
         _source::<LoopAudioSource>();
+    }
+
+    pub(crate) struct SLoop;
+    impl SubtitleAdapter for SLoop {
+        type CodecId = u32;
+        type PacketExtra = ();
+        type FrameExtra = ();
+    }
+
+    pub(crate) struct LoopSubtitleStream;
+
+    impl SubtitleDecoder for LoopSubtitleStream {
+        type Adapter = SLoop;
+        type Buffer = &'static [u8];
+        type Error = LoopError;
+        fn send_packet(&mut self, _: &SubtitlePacket<SLoop, &'static [u8]>)
+            -> Result<(), LoopError> { Ok(()) }
+        fn receive_frame(&mut self, _: &mut SubtitleFrame<SLoop, &'static [u8]>)
+            -> Result<(), LoopError> { Err(LoopError) }
+        fn send_eof(&mut self) -> Result<(), LoopError> { Ok(()) }
+        fn flush(&mut self) -> Result<(), LoopError> { Ok(()) }
+    }
+
+    #[test]
+    fn subtitle_decoder_is_implementable() {
+        fn _decoder<D: SubtitleDecoder>() {}
+        _decoder::<LoopSubtitleStream>();
     }
 }
