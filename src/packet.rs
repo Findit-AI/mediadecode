@@ -50,7 +50,7 @@ pub struct VideoPacket<A: VideoAdapter, B: AsRef<[u8]>> {
 impl<A: VideoAdapter, B: AsRef<[u8]>> VideoPacket<A, B> {
   /// Constructs a `VideoPacket` from `data` and `extra`. All
   /// timestamps default to `None` and flags to empty.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn new(data: B, extra: A::PacketExtra) -> Self {
     Self {
       pts: None,
@@ -63,96 +63,96 @@ impl<A: VideoAdapter, B: AsRef<[u8]>> VideoPacket<A, B> {
   }
 
   /// Returns the presentation timestamp.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn pts(&self) -> Option<Timestamp> {
     self.pts
   }
   /// Returns the decompression timestamp.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn dts(&self) -> Option<Timestamp> {
     self.dts
   }
   /// Returns the packet duration.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn duration(&self) -> Option<Timestamp> {
     self.duration
   }
   /// Returns the packet flags.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn flags(&self) -> PacketFlags {
     self.flags
   }
   /// Returns the compressed data buffer.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn data(&self) -> &B {
     &self.data
   }
   /// Returns the backend-specific extras.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn extra(&self) -> &A::PacketExtra {
     &self.extra
   }
   /// Returns a mutable reference to the backend-specific extras.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn extra_mut(&mut self) -> &mut A::PacketExtra {
     &mut self.extra
   }
   /// Consumes the packet and returns the buffer.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn into_data(self) -> B {
     self.data
   }
   /// Consumes the packet and returns `(buffer, extras)`.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn into_parts(self) -> (B, A::PacketExtra) {
     (self.data, self.extra)
   }
 
   /// Sets the PTS (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self {
     self.pts = v;
     self
   }
   /// Sets the DTS (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_dts(mut self, v: Option<Timestamp>) -> Self {
     self.dts = v;
     self
   }
   /// Sets the duration (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self {
     self.duration = v;
     self
   }
   /// Sets the flags (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_flags(mut self, v: PacketFlags) -> Self {
     self.flags = v;
     self
   }
 
   /// Sets the PTS in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_pts(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.pts = v;
     self
   }
   /// Sets the DTS in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_dts(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.dts = v;
     self
   }
   /// Sets the duration in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.duration = v;
     self
   }
   /// Sets the flags in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_flags(&mut self, v: PacketFlags) -> &mut Self {
     self.flags = v;
     self
@@ -173,7 +173,7 @@ pub struct AudioPacket<A: AudioAdapter, B: AsRef<[u8]>> {
 
 impl<A: AudioAdapter, B: AsRef<[u8]>> AudioPacket<A, B> {
   /// Constructs an `AudioPacket` from `data` and `extra`.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn new(data: B, extra: A::PacketExtra) -> Self {
     Self {
       pts: None,
@@ -186,96 +186,96 @@ impl<A: AudioAdapter, B: AsRef<[u8]>> AudioPacket<A, B> {
   }
 
   /// Returns the presentation timestamp.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn pts(&self) -> Option<Timestamp> {
     self.pts
   }
   /// Returns the decompression timestamp.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn dts(&self) -> Option<Timestamp> {
     self.dts
   }
   /// Returns the duration.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn duration(&self) -> Option<Timestamp> {
     self.duration
   }
   /// Returns the flags.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn flags(&self) -> PacketFlags {
     self.flags
   }
   /// Returns the compressed audio data.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn data(&self) -> &B {
     &self.data
   }
   /// Returns the backend extras.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn extra(&self) -> &A::PacketExtra {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn extra_mut(&mut self) -> &mut A::PacketExtra {
     &mut self.extra
   }
   /// Consumes the packet and returns the buffer.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn into_data(self) -> B {
     self.data
   }
   /// Consumes the packet and returns `(buffer, extras)`.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn into_parts(self) -> (B, A::PacketExtra) {
     (self.data, self.extra)
   }
 
   /// Sets the PTS (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self {
     self.pts = v;
     self
   }
   /// Sets the DTS (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_dts(mut self, v: Option<Timestamp>) -> Self {
     self.dts = v;
     self
   }
   /// Sets the duration (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self {
     self.duration = v;
     self
   }
   /// Sets the flags (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_flags(mut self, v: PacketFlags) -> Self {
     self.flags = v;
     self
   }
 
   /// Sets the PTS in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_pts(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.pts = v;
     self
   }
   /// Sets the DTS in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_dts(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.dts = v;
     self
   }
   /// Sets the duration in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.duration = v;
     self
   }
   /// Sets the flags in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_flags(&mut self, v: PacketFlags) -> &mut Self {
     self.flags = v;
     self
@@ -295,7 +295,7 @@ pub struct SubtitlePacket<A: SubtitleAdapter, B: AsRef<[u8]>> {
 
 impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitlePacket<A, B> {
   /// Constructs a `SubtitlePacket` from `data` and `extra`.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn new(data: B, extra: A::PacketExtra) -> Self {
     Self {
       pts: None,
@@ -307,79 +307,79 @@ impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitlePacket<A, B> {
   }
 
   /// Returns the presentation timestamp.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn pts(&self) -> Option<Timestamp> {
     self.pts
   }
   /// Returns the duration.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn duration(&self) -> Option<Timestamp> {
     self.duration
   }
   /// Returns the flags.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn flags(&self) -> PacketFlags {
     self.flags
   }
   /// Returns the compressed subtitle data.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn data(&self) -> &B {
     &self.data
   }
   /// Returns the backend extras.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn extra(&self) -> &A::PacketExtra {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn extra_mut(&mut self) -> &mut A::PacketExtra {
     &mut self.extra
   }
   /// Consumes the packet and returns the buffer.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn into_data(self) -> B {
     self.data
   }
   /// Consumes the packet and returns `(buffer, extras)`.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn into_parts(self) -> (B, A::PacketExtra) {
     (self.data, self.extra)
   }
 
   /// Sets the PTS (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self {
     self.pts = v;
     self
   }
   /// Sets the duration (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self {
     self.duration = v;
     self
   }
   /// Sets the flags (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_flags(mut self, v: PacketFlags) -> Self {
     self.flags = v;
     self
   }
 
   /// Sets the PTS in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_pts(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.pts = v;
     self
   }
   /// Sets the duration in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.duration = v;
     self
   }
   /// Sets the flags in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_flags(&mut self, v: PacketFlags) -> &mut Self {
     self.flags = v;
     self

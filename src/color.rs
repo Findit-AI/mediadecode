@@ -180,7 +180,7 @@ impl ColorInfo {
   };
 
   /// Constructs a `ColorInfo` from explicit components.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn new(
     primaries: ColorPrimaries,
     transfer: ColorTransfer,
@@ -198,100 +198,100 @@ impl ColorInfo {
   }
 
   /// Returns the color primaries.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn primaries(&self) -> ColorPrimaries {
     self.primaries
   }
 
   /// Returns the transfer characteristics.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn transfer(&self) -> ColorTransfer {
     self.transfer
   }
 
   /// Returns the YUV→RGB matrix coefficients.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn matrix(&self) -> ColorMatrix {
     self.matrix
   }
 
   /// Returns the sample range (limited / full).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn range(&self) -> ColorRange {
     self.range
   }
 
   /// Returns the chroma sample location.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn chroma_location(&self) -> ChromaLocation {
     self.chroma_location
   }
 
   /// Sets the primaries (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_primaries(mut self, v: ColorPrimaries) -> Self {
     self.primaries = v;
     self
   }
 
   /// Sets the transfer (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_transfer(mut self, v: ColorTransfer) -> Self {
     self.transfer = v;
     self
   }
 
   /// Sets the matrix (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_matrix(mut self, v: ColorMatrix) -> Self {
     self.matrix = v;
     self
   }
 
   /// Sets the range (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_range(mut self, v: ColorRange) -> Self {
     self.range = v;
     self
   }
 
   /// Sets the chroma location (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_chroma_location(mut self, v: ChromaLocation) -> Self {
     self.chroma_location = v;
     self
   }
 
   /// Sets the primaries in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_primaries(&mut self, v: ColorPrimaries) -> &mut Self {
     self.primaries = v;
     self
   }
 
   /// Sets the transfer in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_transfer(&mut self, v: ColorTransfer) -> &mut Self {
     self.transfer = v;
     self
   }
 
   /// Sets the matrix in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_matrix(&mut self, v: ColorMatrix) -> &mut Self {
     self.matrix = v;
     self
   }
 
   /// Sets the range in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_range(&mut self, v: ColorRange) -> &mut Self {
     self.range = v;
     self
   }
 
   /// Sets the chroma location in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_chroma_location(&mut self, v: ChromaLocation) -> &mut Self {
     self.chroma_location = v;
     self

@@ -35,7 +35,7 @@ pub struct BitmapRegion<B: AsRef<[u8]>> {
 #[cfg(feature = "alloc")]
 impl<B: AsRef<[u8]>> BitmapRegion<B> {
   /// Constructs a `BitmapRegion`.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn new(
     x: u32,
     y: u32,
@@ -57,37 +57,37 @@ impl<B: AsRef<[u8]>> BitmapRegion<B> {
   }
 
   /// Returns the X coordinate of the region's top-left.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn x(&self) -> u32 {
     self.x
   }
   /// Returns the Y coordinate of the region's top-left.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn y(&self) -> u32 {
     self.y
   }
   /// Returns the region's width.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn width(&self) -> u32 {
     self.width
   }
   /// Returns the region's height.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn height(&self) -> u32 {
     self.height
   }
   /// Returns the stride in bytes.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn stride(&self) -> u32 {
     self.stride
   }
   /// Returns the paletted pixel data.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn data(&self) -> &B {
     &self.data
   }
   /// Returns the RGBA palette.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn palette(&self) -> &B {
     &self.palette
   }

@@ -4,6 +4,14 @@
 //! `VideoFrame` / `AudioFrame` / `SubtitleFrame` types land in later
 //! tasks.
 
+use crate::{
+  Timestamp,
+  adapter::{AudioAdapter, VideoAdapter},
+  color::ColorInfo,
+};
+
+use crate::{adapter::SubtitleAdapter, subtitle::SubtitlePayload};
+
 /// An axis-aligned integer rectangle.
 ///
 /// Used for `VideoFrame::visible_rect` (FFmpeg crop /
@@ -18,7 +26,7 @@ pub struct Rect {
 
 impl Rect {
   /// Constructs a `Rect` at `(x, y)` with the given size.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
     Self {
       x,
@@ -29,74 +37,74 @@ impl Rect {
   }
 
   /// Returns the X coordinate of the top-left corner.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn x(&self) -> u32 {
     self.x
   }
 
   /// Returns the Y coordinate of the top-left corner.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn y(&self) -> u32 {
     self.y
   }
 
   /// Returns the width.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn width(&self) -> u32 {
     self.width
   }
 
   /// Returns the height.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn height(&self) -> u32 {
     self.height
   }
 
   /// Sets the X coordinate (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_x(mut self, x: u32) -> Self {
     self.x = x;
     self
   }
   /// Sets the Y coordinate (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_y(mut self, y: u32) -> Self {
     self.y = y;
     self
   }
   /// Sets the width (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_width(mut self, w: u32) -> Self {
     self.width = w;
     self
   }
   /// Sets the height (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_height(mut self, h: u32) -> Self {
     self.height = h;
     self
   }
 
   /// Sets the X coordinate in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_x(&mut self, x: u32) -> &mut Self {
     self.x = x;
     self
   }
   /// Sets the Y coordinate in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_y(&mut self, y: u32) -> &mut Self {
     self.y = y;
     self
   }
   /// Sets the width in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_width(&mut self, w: u32) -> &mut Self {
     self.width = w;
     self
   }
   /// Sets the height in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_height(&mut self, h: u32) -> &mut Self {
     self.height = h;
     self
@@ -121,55 +129,49 @@ pub struct Plane<B> {
 
 impl<B> Plane<B> {
   /// Constructs a `Plane` from a buffer and a stride.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn new(data: B, stride: u32) -> Self {
     Self { data, stride }
   }
 
   /// Returns the stride in bytes.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn stride(&self) -> u32 {
     self.stride
   }
 
   /// Borrows the underlying buffer.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn data(&self) -> &B {
     &self.data
   }
 
   /// Mutably borrows the underlying buffer.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn data_mut(&mut self) -> &mut B {
     &mut self.data
   }
 
   /// Consumes the plane and returns the underlying buffer.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn into_data(self) -> B {
     self.data
   }
 
   /// Sets the stride (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_stride(mut self, stride: u32) -> Self {
     self.stride = stride;
     self
   }
 
   /// Sets the stride in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_stride(&mut self, stride: u32) -> &mut Self {
     self.stride = stride;
     self
   }
 }
-
-use crate::{
-  Timestamp,
-  adapter::{AudioAdapter, VideoAdapter},
-  color::ColorInfo,
-};
 
 /// A decoded video frame.
 ///
@@ -196,7 +198,7 @@ pub struct VideoFrame<A: VideoAdapter, B: AsRef<[u8]>> {
 impl<A: VideoAdapter, B: AsRef<[u8]>> VideoFrame<A, B> {
   /// Constructs a `VideoFrame`. Timestamps default to `None`,
   /// `visible_rect` to `None`, color to `ColorInfo::UNSPECIFIED`.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn new(
     width: u32,
     height: u32,
@@ -220,47 +222,47 @@ impl<A: VideoAdapter, B: AsRef<[u8]>> VideoFrame<A, B> {
   }
 
   /// Returns the presentation timestamp.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn pts(&self) -> Option<Timestamp> {
     self.pts
   }
   /// Returns the duration.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn duration(&self) -> Option<Timestamp> {
     self.duration
   }
   /// Returns the coded width.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn width(&self) -> u32 {
     self.width
   }
   /// Returns the coded height.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn height(&self) -> u32 {
     self.height
   }
   /// Returns the visible / clean-aperture rectangle, if any.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn visible_rect(&self) -> Option<Rect> {
     self.visible_rect
   }
   /// Returns the pixel format identifier.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn pixel_format(&self) -> A::PixelFormat {
     self.pixel_format
   }
   /// Returns the populated plane count.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn plane_count(&self) -> u8 {
     self.plane_count
   }
   /// Returns the populated planes as a slice.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn planes(&self) -> &[Plane<B>] {
     &self.planes[..self.plane_count as usize]
   }
   /// Returns one plane by index, or `None` if out of range.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn plane(&self, i: usize) -> Option<&Plane<B>> {
     if i < self.plane_count as usize {
       self.planes.get(i)
@@ -269,66 +271,66 @@ impl<A: VideoAdapter, B: AsRef<[u8]>> VideoFrame<A, B> {
     }
   }
   /// Returns the color metadata.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn color(&self) -> ColorInfo {
     self.color
   }
   /// Returns the backend extras.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn extra(&self) -> &A::FrameExtra {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
-  #[inline]
-  pub fn extra_mut(&mut self) -> &mut A::FrameExtra {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub const fn extra_mut(&mut self) -> &mut A::FrameExtra {
     &mut self.extra
   }
 
   /// Sets the PTS (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self {
     self.pts = v;
     self
   }
   /// Sets the duration (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self {
     self.duration = v;
     self
   }
   /// Sets the visible rect (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_visible_rect(mut self, v: Option<Rect>) -> Self {
     self.visible_rect = v;
     self
   }
   /// Sets the color metadata (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_color(mut self, v: ColorInfo) -> Self {
     self.color = v;
     self
   }
 
   /// Sets the PTS in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_pts(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.pts = v;
     self
   }
   /// Sets the duration in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.duration = v;
     self
   }
   /// Sets the visible rect in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_visible_rect(&mut self, v: Option<Rect>) -> &mut Self {
     self.visible_rect = v;
     self
   }
   /// Sets the color metadata in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_color(&mut self, v: ColorInfo) -> &mut Self {
     self.color = v;
     self
@@ -358,7 +360,7 @@ pub struct AudioFrame<A: AudioAdapter, B: AsRef<[u8]>> {
 impl<A: AudioAdapter, B: AsRef<[u8]>> AudioFrame<A, B> {
   /// Constructs an `AudioFrame`.
   #[allow(clippy::too_many_arguments)]
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn new(
     sample_rate: u32,
     nb_samples: u32,
@@ -384,89 +386,87 @@ impl<A: AudioAdapter, B: AsRef<[u8]>> AudioFrame<A, B> {
   }
 
   /// Returns the presentation timestamp.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn pts(&self) -> Option<Timestamp> {
     self.pts
   }
   /// Returns the duration.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn duration(&self) -> Option<Timestamp> {
     self.duration
   }
   /// Returns the sample rate (Hz).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn sample_rate(&self) -> u32 {
     self.sample_rate
   }
   /// Returns the per-channel sample count.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn nb_samples(&self) -> u32 {
     self.nb_samples
   }
   /// Returns the channel count.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn channel_count(&self) -> u8 {
     self.channel_count
   }
   /// Returns the sample format identifier.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn sample_format(&self) -> A::SampleFormat {
     self.sample_format
   }
   /// Returns the channel layout identifier.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn channel_layout(&self) -> &A::ChannelLayout {
     &self.channel_layout
   }
   /// Returns the populated plane count.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn plane_count(&self) -> u8 {
     self.plane_count
   }
   /// Returns the populated planes as a slice.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn planes(&self) -> &[Plane<B>] {
     &self.planes[..self.plane_count as usize]
   }
   /// Returns the backend extras.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn extra(&self) -> &A::FrameExtra {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
-  #[inline]
-  pub fn extra_mut(&mut self) -> &mut A::FrameExtra {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub const fn extra_mut(&mut self) -> &mut A::FrameExtra {
     &mut self.extra
   }
 
   /// Sets the PTS (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self {
     self.pts = v;
     self
   }
   /// Sets the duration (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self {
     self.duration = v;
     self
   }
 
   /// Sets the PTS in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_pts(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.pts = v;
     self
   }
   /// Sets the duration in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.duration = v;
     self
   }
 }
-
-use crate::{adapter::SubtitleAdapter, subtitle::SubtitlePayload};
 
 /// A decoded subtitle frame.
 pub struct SubtitleFrame<A: SubtitleAdapter, B: AsRef<[u8]>> {
@@ -478,7 +478,7 @@ pub struct SubtitleFrame<A: SubtitleAdapter, B: AsRef<[u8]>> {
 
 impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitleFrame<A, B> {
   /// Constructs a `SubtitleFrame`.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn new(payload: SubtitlePayload<B>, extra: A::FrameExtra) -> Self {
     Self {
       pts: None,
@@ -489,52 +489,52 @@ impl<A: SubtitleAdapter, B: AsRef<[u8]>> SubtitleFrame<A, B> {
   }
 
   /// Returns the PTS.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn pts(&self) -> Option<Timestamp> {
     self.pts
   }
   /// Returns the duration.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn duration(&self) -> Option<Timestamp> {
     self.duration
   }
   /// Returns the payload.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn payload(&self) -> &SubtitlePayload<B> {
     &self.payload
   }
   /// Returns the backend extras.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn extra(&self) -> &A::FrameExtra {
     &self.extra
   }
   /// Returns a mutable reference to the backend extras.
-  #[inline]
-  pub fn extra_mut(&mut self) -> &mut A::FrameExtra {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub const fn extra_mut(&mut self) -> &mut A::FrameExtra {
     &mut self.extra
   }
 
   /// Sets the PTS (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self {
     self.pts = v;
     self
   }
   /// Sets the duration (consuming builder).
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self {
     self.duration = v;
     self
   }
 
   /// Sets the PTS in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_pts(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.pts = v;
     self
   }
   /// Sets the duration in place.
-  #[inline]
+  #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn set_duration(&mut self, v: Option<Timestamp>) -> &mut Self {
     self.duration = v;
     self
