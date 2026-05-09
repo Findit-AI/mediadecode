@@ -7,10 +7,11 @@
 //! FFmpeg-allocated pixel memory is shared between the source frame
 //! and the produced `VideoFrame`. Cloning the resulting `VideoFrame`
 //! bumps refcounts; dropping releases them.
+use core::ptr::{addr_of, read_unaligned};
 
 use ffmpeg_next::ffi::{
   AV_NOPTS_VALUE, AVChromaLocation, AVColorPrimaries, AVColorRange, AVColorSpace,
-  AVColorTransferCharacteristic, AVFrame, AVPictureType,
+  AVColorTransferCharacteristic, AVFrame, AVPictureType, AVSubtitleType, av_buffer_alloc,
 };
 use mediadecode::{
   PixelFormat, Timebase, Timestamp,
@@ -271,7 +272,7 @@ pub unsafe fn av_frame_to_video_frame(
   // run, so we never let Rust assume the field actually inhabits the
   // enum's discriminant set. FFmpeg version skew or a buggy decoder
   // can put unknown values into these fields.
-  use core::ptr::{addr_of, read_unaligned};
+
   // SAFETY: `av_frame` points at a live AVFrame; `addr_of!` computes
   // the address without forming a reference, and `read_unaligned::<i32>`
   // is sound because each of these enum types has the layout of
@@ -309,7 +310,6 @@ fn plane_placeholder() -> Result<Plane<FfmpegBuffer>, ConvertError> {
   // Allocate a zero-byte AVBufferRef as a placeholder for unused plane
   // slots. `[Plane<B>; 4]` requires four populated entries; we only
   // expose `plane_count` of them through `VideoFrame::planes()`.
-  use ffmpeg_next::ffi::av_buffer_alloc;
   let raw = unsafe { av_buffer_alloc(0) };
   // `av_buffer_alloc(0)` is allowed to return null on some platforms;
   // fall back to allocating 1 byte if so.
@@ -361,7 +361,7 @@ unsafe fn build_video_frame_extra(av_frame: *const AVFrame) -> VideoFrameExtra {
   }
   // Picture type — read raw to avoid bindgen-enum UB if FFmpeg writes
   // an out-of-range value (version skew / hostile decoder).
-  use core::ptr::{addr_of, read_unaligned};
+
   // SAFETY: `av_frame` is live; reading `pict_type` as `i32` matches
   // the bindgen enum's underlying `c_int` storage.
   let pict_type_raw = unsafe { read_unaligned(addr_of!((*av_frame).pict_type) as *const i32) };
@@ -394,7 +394,6 @@ unsafe fn collect_side_data(av_frame: *const AVFrame) -> std::vec::Vec<SideDataE
   if count == 0 || side_data.is_null() {
     return Vec::new();
   }
-  use core::ptr::{addr_of, read_unaligned};
   let mut out = Vec::with_capacity(count);
   for i in 0..count {
     let sd = unsafe { *side_data.add(i) };
@@ -590,7 +589,6 @@ pub unsafe fn av_frame_to_audio_frame(
   // SAFETY: `av_frame` is a live `*const AVFrame`; passing the
   // address of the embedded ch_layout as `*const AVChannelLayout`
   // is sound because `addr_of!` doesn't form a reference.
-  use core::ptr::addr_of;
   let ch_layout_ptr = unsafe { addr_of!((*av_frame).ch_layout) };
   let channel_layout =
     unsafe { crate::channel_layout::audio_channel_layout_from_raw_ptr(ch_layout_ptr) };
@@ -718,7 +716,6 @@ pub unsafe fn av_frame_to_audio_frame(
 }
 
 fn audio_plane_placeholder() -> Result<Plane<FfmpegBuffer>, ConvertError> {
-  use ffmpeg_next::ffi::av_buffer_alloc;
   let raw = unsafe { av_buffer_alloc(1) };
   if raw.is_null() {
     return Err(ConvertError::BufferAcquireFailed { plane: 8 });
@@ -811,8 +808,7 @@ pub unsafe fn av_subtitle_to_subtitle_frame(
   if count > 0 && rects_ptr.is_null() {
     return Err(ConvertError::NullFrame);
   }
-  use core::ptr::{addr_of, read_unaligned};
-  use ffmpeg_next::ffi::AVSubtitleType;
+
   let text_kind = AVSubtitleType::SUBTITLE_TEXT as i32;
   let ass_kind = AVSubtitleType::SUBTITLE_ASS as i32;
   let bitmap_kind = AVSubtitleType::SUBTITLE_BITMAP as i32;
