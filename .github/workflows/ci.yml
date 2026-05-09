@@ -53,9 +53,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v6
-    - name: Install FFmpeg (Linux)
+    - name: Install FFmpeg 7 (Linux)
       if: runner.os == 'Linux'
+      # Ubuntu 24.04's archive ships FFmpeg 6.1.1; ffmpeg-next 8.1
+      # selects its `legacy_channel_layout.rs` (a `bitflags!` `ChannelLayout`)
+      # for any FFmpeg < 7.0 via the `not(feature = "ffmpeg_7_0")`
+      # `cfg_attr(path = …)` switch, which omits the
+      # `_22POINT2` / `_7POINT2POINT3` / `_9POINT1POINT4_BACK` /
+      # `_7POINT1_TOP_BACK` constants this crate maps. Use the
+      # `savoury1/ffmpeg7` PPA to pull FFmpeg 7.x dev libs so
+      # `ffmpeg_7_0` gets auto-enabled by ffmpeg-next's build
+      # script. macOS Homebrew already ships FFmpeg ≥ 7.
       run: |
+        sudo add-apt-repository -y ppa:savoury1/ffmpeg7
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           pkg-config \
@@ -142,9 +152,19 @@ jobs:
         key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-build-
-    - name: Install FFmpeg (Linux)
+    - name: Install FFmpeg 7 (Linux)
       if: runner.os == 'Linux'
+      # Ubuntu 24.04's archive ships FFmpeg 6.1.1; ffmpeg-next 8.1
+      # selects its `legacy_channel_layout.rs` (a `bitflags!` `ChannelLayout`)
+      # for any FFmpeg < 7.0 via the `not(feature = "ffmpeg_7_0")`
+      # `cfg_attr(path = …)` switch, which omits the
+      # `_22POINT2` / `_7POINT2POINT3` / `_9POINT1POINT4_BACK` /
+      # `_7POINT1_TOP_BACK` constants this crate maps. Use the
+      # `savoury1/ffmpeg7` PPA to pull FFmpeg 7.x dev libs so
+      # `ffmpeg_7_0` gets auto-enabled by ffmpeg-next's build
+      # script. macOS Homebrew already ships FFmpeg ≥ 7.
       run: |
+        sudo add-apt-repository -y ppa:savoury1/ffmpeg7
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           pkg-config \
@@ -187,9 +207,19 @@ jobs:
         key: ${{ runner.os }}-test-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-test-
-    - name: Install FFmpeg (Linux)
+    - name: Install FFmpeg 7 (Linux)
       if: runner.os == 'Linux'
+      # Ubuntu 24.04's archive ships FFmpeg 6.1.1; ffmpeg-next 8.1
+      # selects its `legacy_channel_layout.rs` (a `bitflags!` `ChannelLayout`)
+      # for any FFmpeg < 7.0 via the `not(feature = "ffmpeg_7_0")`
+      # `cfg_attr(path = …)` switch, which omits the
+      # `_22POINT2` / `_7POINT2POINT3` / `_9POINT1POINT4_BACK` /
+      # `_7POINT1_TOP_BACK` constants this crate maps. Use the
+      # `savoury1/ffmpeg7` PPA to pull FFmpeg 7.x dev libs so
+      # `ffmpeg_7_0` gets auto-enabled by ffmpeg-next's build
+      # script. macOS Homebrew already ships FFmpeg ≥ 7.
       run: |
+        sudo add-apt-repository -y ppa:savoury1/ffmpeg7
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           pkg-config \
@@ -351,8 +381,12 @@ jobs:
       - sanitizer
     steps:
       - uses: actions/checkout@v6
-      - name: Install FFmpeg
+      - name: Install FFmpeg 7
+        # See `clippy.Install FFmpeg 7 (Linux)` for the rationale —
+        # the `savoury1/ffmpeg7` PPA gives us FFmpeg 7.x dev libs
+        # so ffmpeg-next 8.1 picks the new-AVChannelLayout path.
         run: |
+          sudo add-apt-repository -y ppa:savoury1/ffmpeg7
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
