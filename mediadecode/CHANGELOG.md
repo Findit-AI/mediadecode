@@ -11,6 +11,24 @@ The sibling FFmpeg adapter has its own log at
 
 ## [Unreleased]
 
+### Changed (BREAKING — pre-publish)
+
+- `mediadecode::color::*`, `mediadecode::cfa::BayerPattern`,
+  and the frame primitives `Dimensions` / `Rect` / `Plane<B>` are now
+  re-exports from the `videoframe` crate (path dep
+  `videoframe = { path = "../videoframe" }`). Existing import paths
+  (`mediadecode::color::ColorMatrix`, etc.) continue to resolve
+  via the re-exports — no source-level break.
+- `mediadecode::pixel_format::PixelFormat` remains defined locally: the
+  `videoframe` equivalent diverged to `Unknown(u32)` (lossless wire
+  round-trip) while mediadecode uses `Unknown = 0`; the two types are
+  structurally incompatible and would require changes to all
+  `_ => PixelFormat::Unknown` fallback arms in `mediadecode-ffmpeg` and
+  `mediadecode-webcodecs`. Tracked as a separate follow-up.
+- Decoder-output types (`VideoFrame<P, E, D>`, `AudioFrame<S, C, E, D>`,
+  `SubtitleFrame<E, D>`) remain in mediadecode unchanged — they carry
+  timestamp + backend-extras layers that are mediadecode's domain.
+
 ## [0.1.0] - 2026-05-09
 
 Initial public release.
