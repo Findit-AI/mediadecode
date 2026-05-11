@@ -511,7 +511,10 @@ mod tests {
 
   #[test]
   fn unknown_for_garbage_value() {
-    assert!(matches!(from_av_pixel_format(-99_999), PixelFormat::Unknown(_)));
+    assert!(matches!(
+      from_av_pixel_format(-99_999),
+      PixelFormat::Unknown(_)
+    ));
   }
 
   #[test]
@@ -537,7 +540,13 @@ mod tests {
   fn hw_formats_map_to_unknown_in_pixel_format() {
     // HW sentinels intentionally don't have a mediadecode::PixelFormat
     // representation — they're not CPU pixel data.
-    assert!(matches!(from_av_pixel_format(AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX as i32), PixelFormat::Unknown(_)));
-    assert!(matches!(from_av_pixel_format(AVPixelFormat::AV_PIX_FMT_VAAPI as i32), PixelFormat::Unknown(_)));
+    assert!(matches!(
+      from_av_pixel_format(AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX as i32),
+      PixelFormat::Unknown(_)
+    ));
+    assert!(matches!(
+      from_av_pixel_format(AVPixelFormat::AV_PIX_FMT_VAAPI as i32),
+      PixelFormat::Unknown(_)
+    ));
   }
 }
