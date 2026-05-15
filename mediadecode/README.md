@@ -32,11 +32,16 @@ bytes. Adapter implementations live in sibling crates such as
 
 ## What's in the box
 
-- **Pixel and sample formats** — `PixelFormat` (closed enum covering
-  CPU and HW-tile formats: NV12, P010/P012/P016, P210/P212/P216,
-  P410/P412/P416, YUV420P, RGB24, …) and the H.273-aligned color
-  enums `ColorMatrix`, `ColorPrimaries`, `ColorTransfer`,
-  `ColorRange`, `ChromaLocation`, plus `BayerPattern` for RAW.
+- **Pixel and sample formats** — `PixelFormat` (~270 variants
+  covering every FFmpeg `n8.1` `AVPixelFormat` slug plus cinema-RAW
+  additions; sourced from
+  [`videoframe`](https://crates.io/crates/videoframe) and re-exported
+  here so consumers keep their `mediadecode::PixelFormat` import).
+  `Unknown(u32)` preserves the raw wire identifier for lossless
+  round-trip via `from_u32` / `to_u32`. H.273-aligned color enums
+  (`ColorMatrix`, `ColorPrimaries`, `ColorTransfer`, `ColorRange`,
+  `ChromaLocation`) and `BayerPattern` for RAW are similarly
+  re-exported from `videoframe`.
 - **Generic packet / frame types** — `VideoPacket<A, B>`,
   `AudioPacket<A, B>`, `SubtitlePacket<A, B>`, `VideoFrame<A, B>`,
   `AudioFrame<A, B>`, `SubtitleFrame<A, B>` parameterized over an
@@ -83,7 +88,7 @@ the rest of the findit-studio workspace uses:
 
 ```toml
 [dependencies]
-mediadecode = { version = "0.0.0", default-features = false, features = ["alloc"] }
+mediadecode = { version = "0.2", default-features = false, features = ["alloc"] }
 ```
 
 ## Usage

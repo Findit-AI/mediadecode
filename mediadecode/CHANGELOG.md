@@ -11,23 +11,66 @@ The sibling FFmpeg adapter has its own log at
 
 ## [Unreleased]
 
-### Changed (BREAKING — pre-publish)
+## [0.2.0] - 2026-05-15
 
-- `mediadecode::color::*`, `mediadecode::cfa::BayerPattern`,
-  and the frame primitives `Dimensions` / `Rect` / `Plane<B>` are now
-  re-exports from the `videoframe` crate (path dep
-  `videoframe = { path = "../videoframe" }`). Existing import paths
-  (`mediadecode::color::ColorMatrix`, etc.) continue to resolve
-  via the re-exports — no source-level break.
-- `mediadecode::pixel_format::PixelFormat` remains defined locally: the
-  `videoframe` equivalent diverged to `Unknown(u32)` (lossless wire
-  round-trip) while mediadecode uses `Unknown = 0`; the two types are
-  structurally incompatible and would require changes to all
-  `_ => PixelFormat::Unknown` fallback arms in `mediadecode-ffmpeg` and
-  `mediadecode-webcodecs`. Tracked as a separate follow-up.
-- Decoder-output types (`VideoFrame<P, E, D>`, `AudioFrame<S, C, E, D>`,
-  `SubtitleFrame<E, D>`) remain in mediadecode unchanged — they carry
-  timestamp + backend-extras layers that are mediadecode's domain.
+The shared pixel-vocabulary layer (`color`, `cfa`, `pixel_format`,
+frame primitives) now lives in the dedicated
+[`videoframe`](https://crates.io/crates/videoframe) crate, so colconv,
+mediadecode, and scenesdetect share a single canonical definition of
+these types. mediadecode keeps the decoder-output story (timestamped
+frames + per-backend extras) — pixel and color vocabulary are
+re-exports.
+
+### Changed (BREAKING)
+
+- **`PixelFormat::Unknown` shape**: now `Unknown(u32)` (tuple variant
+  carrying the raw wire identifier) instead of the prior unit
+  variant. Lossless round-trip via `from_u32` / `to_u32`. Callers
+  matching the variant must switch from `PixelFormat::Unknown` to
+  `PixelFormat::Unknown(_)` (or `Unknown(raw)` if the raw value is
+  useful). Boundary adapters (`mediadecode-ffmpeg`,
+  `mediadecode-webcodecs`) have been updated to preserve the raw
+  FFmpeg / WebCodecs identifier through the cast.
+- **`PixelFormat` enum body**: now sourced from
+  [`videoframe::pixel_format::PixelFormat`](https://docs.rs/videoframe/0.2/videoframe/pixel_format/enum.PixelFormat.html)
+  and covers **every** FFmpeg `n8.1` `AVPixelFormat` slug (~270 variants,
+  closed against FFmpeg's vendored slug list via `cargo xtask check`)
+  plus cinema-RAW additions. The previously-shipped subset (NV12, P010
+  / P012 / P016, P210 / P212 / P216, P410 / P412 / P416, YUV420P, RGB24,
+  …) is a strict subset of the new set, so most existing match arms
+  still resolve; matches that relied on the enum being closed at the
+  prior list will need updating (FFmpeg-derived sources now feed
+  variants like `Yuv411p`, `Yuv410p`, `Yuv440p`, `Y210`, `V210`,
+  `Xv36`, `Vuya`, `Bayer*`, `Xyz12`, etc.).
+
+### Changed
+
+- **`mediadecode::color::*`** (`ColorMatrix`, `ColorPrimaries`,
+  `ColorTransfer`, `ColorRange`, `ChromaLocation`, `ColorInfo`,
+  `DcpTargetGamut`) now re-export from `videoframe::color::*`. Public
+  import paths (`mediadecode::color::ColorMatrix`, etc.) keep
+  resolving — no source-level break for consumers.
+- **`mediadecode::cfa::BayerPattern`** re-exports from
+  `videoframe::frame::BayerPattern` (videoframe 0.2 dropped its
+  separate `cfa` module; the type lives under `frame::bayer` and is
+  re-exported via `frame::*`).
+- **`mediadecode::frame::{Dimensions, Rect, Plane}`** re-export from
+  `videoframe::frame::*`. The structural primitives are now the
+  canonical videoframe definitions; the type identity is
+  cross-crate-equal so values can flow without conversion.
+- **Decoder-output types unchanged.** `VideoFrame<P, E, D>`,
+  `AudioFrame<S, C, E, D>`, `SubtitleFrame<E, D>` remain in
+  mediadecode — they carry timestamp + backend-extras, which sit
+  above the pure pixel-vocabulary layer.
+
+### Added
+
+- **`videoframe`** as a new required dep (`videoframe = "0.2"`).
+  Enabled with `features = ["frame"]` so every per-family pixel-format
+  borrow type is available to downstream consumers.
+
+[Unreleased]: https://github.com/findit-ai/mediadecode/compare/mediadecode-v0.2.0...HEAD
+[0.2.0]: https://github.com/findit-ai/mediadecode/releases/tag/mediadecode-v0.2.0
 
 ## [0.1.0] - 2026-05-09
 
@@ -72,5 +115,4 @@ Initial public release.
 - **Optional features.** `serde`, `arbitrary`, `quickcheck` (each
   forwards to `mediatime`'s matching feature).
 
-[Unreleased]: https://github.com/findit-ai/mediadecode/compare/mediadecode-v0.1.0...HEAD
 [0.1.0]: https://github.com/findit-ai/mediadecode/releases/tag/mediadecode-v0.1.0
