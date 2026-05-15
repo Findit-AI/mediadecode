@@ -43,6 +43,16 @@ shape and updates the type aliases the crate re-exports.
   default-frame sites across `mediadecode-ffmpeg` and
   `mediadecode-webcodecs`).
 
+### Added
+
+- **`Debug` impl for `Frame`** — manual `core::fmt::Debug` impl
+  showing dimensions / format so the only public type previously
+  without `Debug` is now printable.
+  Closes [issue #4 — finding 2](https://github.com/Findit-AI/mediadecode/issues/4).
+- **`#[must_use]`** on every consuming `with_*` builder method
+  across the crate's public surface.
+  Closes [issue #4 — finding 3](https://github.com/Findit-AI/mediadecode/issues/4).
+
 [0.1.0]: https://github.com/findit-ai/mediadecode/releases/tag/mediadecode-ffmpeg-v0.1.0
 [0.2.0]: https://github.com/findit-ai/mediadecode/releases/tag/mediadecode-ffmpeg-v0.2.0
 

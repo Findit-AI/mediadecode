@@ -418,6 +418,7 @@ impl VideoDecoder {
   /// let decoder = VideoDecoder::open(params)?
   ///     .with_max_probe_pending_bytes(1024 * 1024 * 1024); // 1 GiB
   /// ```
+  #[must_use]
   pub fn with_max_probe_pending_bytes(mut self, bytes: usize) -> Self {
     self.max_probe_pending_bytes = bytes;
     self

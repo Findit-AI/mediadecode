@@ -68,8 +68,19 @@ re-exports.
 - **`videoframe`** as a new required dep (`videoframe = "0.2"`).
   Enabled with `features = ["frame"]` so every per-family pixel-format
   borrow type is available to downstream consumers.
+- **`#[must_use]`** on every consuming `with_*` builder method
+  across frame / packet / subtitle types. Catches accidental
+  discards of the returned value at compile time.
 
-[Unreleased]: https://github.com/findit-ai/mediadecode/compare/mediadecode-v0.2.0...HEAD
+### Fixed
+
+- **`plane_count` validated against the fixed plane-array
+  capacity.** `VideoFrame::new` asserts `plane_count <= 4`,
+  `AudioFrame::new` asserts `plane_count <= 8`. Previously,
+  out-of-range values would panic later inside `planes()` /
+  `samples()`; now they fail-fast at construction.
+  Closes [issue #4 — finding 1](https://github.com/Findit-AI/mediadecode/issues/4).
+
 [0.2.0]: https://github.com/findit-ai/mediadecode/releases/tag/mediadecode-v0.2.0
 
 ## [0.1.0] - 2026-05-09

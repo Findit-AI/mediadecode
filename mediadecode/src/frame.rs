@@ -155,24 +155,28 @@ impl<P, E, D> VideoFrame<P, E, D> {
 
   /// Sets the PTS (consuming builder).
   #[cfg_attr(not(tarpaulin), inline(always))]
+  #[must_use]
   pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self {
     self.pts = v;
     self
   }
   /// Sets the duration (consuming builder).
   #[cfg_attr(not(tarpaulin), inline(always))]
+  #[must_use]
   pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self {
     self.duration = v;
     self
   }
   /// Sets the visible rect (consuming builder).
   #[cfg_attr(not(tarpaulin), inline(always))]
+  #[must_use]
   pub const fn with_visible_rect(mut self, v: Option<Rect>) -> Self {
     self.visible_rect = v;
     self
   }
   /// Sets the color metadata (consuming builder).
   #[cfg_attr(not(tarpaulin), inline(always))]
+  #[must_use]
   pub const fn with_color(mut self, v: ColorInfo) -> Self {
     self.color = v;
     self
@@ -327,12 +331,14 @@ impl<S, C, E, D> AudioFrame<S, C, E, D> {
 
   /// Sets the PTS (consuming builder).
   #[cfg_attr(not(tarpaulin), inline(always))]
+  #[must_use]
   pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self {
     self.pts = v;
     self
   }
   /// Sets the duration (consuming builder).
   #[cfg_attr(not(tarpaulin), inline(always))]
+  #[must_use]
   pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self {
     self.duration = v;
     self
@@ -404,12 +410,14 @@ impl<E, D> SubtitleFrame<E, D> {
 
   /// Sets the PTS (consuming builder).
   #[cfg_attr(not(tarpaulin), inline(always))]
+  #[must_use]
   pub const fn with_pts(mut self, v: Option<Timestamp>) -> Self {
     self.pts = v;
     self
   }
   /// Sets the duration (consuming builder).
   #[cfg_attr(not(tarpaulin), inline(always))]
+  #[must_use]
   pub const fn with_duration(mut self, v: Option<Timestamp>) -> Self {
     self.duration = v;
     self
