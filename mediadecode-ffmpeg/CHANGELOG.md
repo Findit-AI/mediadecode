@@ -47,6 +47,12 @@ shape and updates the type aliases the crate re-exports.
   the `Vec<Packet>` without cloning. The hand-written `Debug` that
   printed `[N packets]` (because `ffmpeg_next::Packet` has no
   `Debug`) now lives on the payload structs.
+  All three new variants also carry `#[from]`, joining `Ffmpeg`
+  which already had it — so `impl From<HwDeviceInitFailed> for Error`,
+  `impl From<AllBackendsFailed> for Error`, and
+  `impl From<FallbackFailed> for Error` are auto-generated, and
+  helpers returning `Result<_, HwDeviceInitFailed>` etc. can be
+  `?`-propagated into `Result<_, Error>` directly.
 
 ### Changed
 

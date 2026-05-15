@@ -41,7 +41,11 @@ re-exports.
   ([`frame::TooManyVideoPlanes`](https://docs.rs/mediadecode/0.2/mediadecode/frame/struct.TooManyVideoPlanes.html),
   [`frame::TooManyAudioPlanes`](https://docs.rs/mediadecode/0.2/mediadecode/frame/struct.TooManyAudioPlanes.html))
   carry the same `plane_count: u8` and expose it via a
-  `pub const fn plane_count(&self) -> u8` accessor.
+  `pub const fn plane_count(&self) -> u8` accessor. Both variants
+  also carry `#[from]`, so `impl From<TooManyVideoPlanes> for FrameError`
+  / `impl From<TooManyAudioPlanes> for FrameError` are auto-generated
+  — inner helpers returning `Result<_, TooManyVideoPlanes>` can be
+  `?`-propagated directly into `FrameError`.
 - **`PixelFormat` enum body**: now sourced from
   [`videoframe::pixel_format::PixelFormat`](https://docs.rs/videoframe/0.2/videoframe/pixel_format/enum.PixelFormat.html)
   and covers **every** FFmpeg `n8.1` `AVPixelFormat` slug (~270 variants,

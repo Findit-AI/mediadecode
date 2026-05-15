@@ -26,15 +26,19 @@ pub enum FrameError {
   /// up to and including 4 are accepted, larger values would
   /// later panic inside [`VideoFrame::planes`] far from the
   /// construction site. See [`TooManyVideoPlanes`] for the
-  /// payload details.
+  /// payload details. `#[from]` gives a free
+  /// `impl From<TooManyVideoPlanes> for FrameError`, so inner
+  /// helpers that return `Result<_, TooManyVideoPlanes>` can be
+  /// `?`-propagated into `FrameError` directly.
   #[error(transparent)]
-  TooManyVideoPlanes(TooManyVideoPlanes),
+  TooManyVideoPlanes(#[from] TooManyVideoPlanes),
   /// `AudioFrame::try_new` was called with `plane_count > 8`. The
   /// fixed plane array has exactly 8 slots (matches FFmpeg's
   /// `AV_NUM_DATA_POINTERS`). See [`TooManyAudioPlanes`] for the
-  /// payload details.
+  /// payload details. `#[from]` gives a free
+  /// `impl From<TooManyAudioPlanes> for FrameError`.
   #[error(transparent)]
-  TooManyAudioPlanes(TooManyAudioPlanes),
+  TooManyAudioPlanes(#[from] TooManyAudioPlanes),
 }
 
 /// Payload for [`FrameError::TooManyVideoPlanes`].

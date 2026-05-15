@@ -35,23 +35,28 @@ pub enum Error {
   BackendUnsupportedByCodec(Backend),
 
   /// `av_hwdevice_ctx_create` failed for the requested backend. See
-  /// [`HwDeviceInitFailed`] for the payload details.
+  /// [`HwDeviceInitFailed`] for the payload details. `#[from]` gives
+  /// a free `impl From<HwDeviceInitFailed> for Error`, so inner
+  /// helpers that return `Result<_, HwDeviceInitFailed>` can be
+  /// `?`-propagated into `Error` directly.
   #[error(transparent)]
-  HwDeviceInitFailed(HwDeviceInitFailed),
+  HwDeviceInitFailed(#[from] HwDeviceInitFailed),
 
   /// Auto-probe exhausted every backend in the platform's order. See
   /// [`AllBackendsFailed`] for the payload details (in particular the
   /// `unconsumed_packets` history that callers should replay through
-  /// their own software decoder for non-seekable inputs).
+  /// their own software decoder for non-seekable inputs). `#[from]`
+  /// gives a free `impl From<AllBackendsFailed> for Error`.
   #[error(transparent)]
-  AllBackendsFailed(AllBackendsFailed),
+  AllBackendsFailed(#[from] AllBackendsFailed),
 
   /// Surfaced by [`crate::FfmpegVideoStreamDecoder`] when a HW->SW
   /// fallback attempt itself fails. See [`FallbackFailed`] for the
   /// payload details (in particular the rescued `unconsumed_packets`
-  /// the HW path had already consumed from the caller).
+  /// the HW path had already consumed from the caller). `#[from]`
+  /// gives a free `impl From<FallbackFailed> for Error`.
   #[error(transparent)]
-  FallbackFailed(FallbackFailed),
+  FallbackFailed(#[from] FallbackFailed),
 }
 
 /// Payload for [`Error::HwDeviceInitFailed`].
