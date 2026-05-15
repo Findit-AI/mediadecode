@@ -51,10 +51,11 @@ Output frames are CPU-side, downloaded with `av_hwframe_transfer_data`
 
 If every HW backend opens but later fails at decode time and the
 software backend is also unavailable, the error surfaces as
-`VideoDecodeError::Decode(Error::AllBackendsFailed { unconsumed_packets, .. })`
-carrying any packets the decoder had already accepted from the demuxer
-— so non-seekable callers (live streams, pipes, network sources) can
-replay them through their own software decoder without re-demuxing.
+`VideoDecodeError::Decode(Error::AllBackendsFailed(p))` carrying any
+packets the decoder had already accepted from the demuxer (accessible
+via `p.unconsumed_packets()` / `p.into_unconsumed_packets()`) — so
+non-seekable callers (live streams, pipes, network sources) can replay
+them through their own software decoder without re-demuxing.
 
 ## Usage
 
@@ -82,10 +83,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Probes HW backends in order, falls back to software.
   let mut decoder = match FfmpegVideoStreamDecoder::open(stream.parameters(), time_base) {
     Ok(d) => d,
-    Err(FfmpegError::AllBackendsFailed { unconsumed_packets, .. }) => {
+    Err(FfmpegError::AllBackendsFailed(p)) => {
       // No backend at all could open this stream — including software.
       // `unconsumed_packets` is empty at open-time. Caller decides.
-      let _ = unconsumed_packets;
+      let _unconsumed_packets = p.into_unconsumed_packets();
       return Ok(());
     }
     Err(e) => return Err(e.into()),
@@ -98,14 +99,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match decoder.send_packet(&pkt) {
       Ok(()) => {}
-      Err(VideoDecodeError::Decode(FfmpegError::AllBackendsFailed {
-        unconsumed_packets, ..
-      })) => {
+      Err(VideoDecodeError::Decode(FfmpegError::AllBackendsFailed(p))) => {
         // Runtime exhaustion: rescued packets are the bytes the decoder
         // already consumed from `input`. Replay them through your own
         // software decoder before the current packet so non-seekable
         // sources recover cleanly.
-        let _ = unconsumed_packets;
+        let _unconsumed_packets = p.into_unconsumed_packets();
         return Ok(());
       }
       Err(e) => return Err(e.into()),

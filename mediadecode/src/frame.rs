@@ -25,20 +25,58 @@ pub enum FrameError {
   /// fixed plane array has exactly 4 slots; `plane_count` values
   /// up to and including 4 are accepted, larger values would
   /// later panic inside [`VideoFrame::planes`] far from the
-  /// construction site.
-  #[error("VideoFrame: plane_count {plane_count} exceeds the fixed 4-plane array")]
-  TooManyVideoPlanes {
-    /// The out-of-range `plane_count` value the caller supplied.
-    plane_count: u8,
-  },
+  /// construction site. See [`TooManyVideoPlanes`] for the
+  /// payload details.
+  #[error(transparent)]
+  TooManyVideoPlanes(TooManyVideoPlanes),
   /// `AudioFrame::try_new` was called with `plane_count > 8`. The
   /// fixed plane array has exactly 8 slots (matches FFmpeg's
-  /// `AV_NUM_DATA_POINTERS`).
-  #[error("AudioFrame: plane_count {plane_count} exceeds the fixed 8-plane array")]
-  TooManyAudioPlanes {
-    /// The out-of-range `plane_count` value the caller supplied.
-    plane_count: u8,
-  },
+  /// `AV_NUM_DATA_POINTERS`). See [`TooManyAudioPlanes`] for the
+  /// payload details.
+  #[error(transparent)]
+  TooManyAudioPlanes(TooManyAudioPlanes),
+}
+
+/// Payload for [`FrameError::TooManyVideoPlanes`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Error)]
+#[error("VideoFrame: plane_count {plane_count} exceeds the fixed 4-plane array")]
+pub struct TooManyVideoPlanes {
+  /// The out-of-range `plane_count` value the caller supplied.
+  plane_count: u8,
+}
+
+impl TooManyVideoPlanes {
+  /// Constructs a new [`TooManyVideoPlanes`] payload.
+  #[inline]
+  pub const fn new(plane_count: u8) -> Self {
+    Self { plane_count }
+  }
+  /// The out-of-range `plane_count` value the caller supplied.
+  #[inline]
+  pub const fn plane_count(&self) -> u8 {
+    self.plane_count
+  }
+}
+
+/// Payload for [`FrameError::TooManyAudioPlanes`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Error)]
+#[error("AudioFrame: plane_count {plane_count} exceeds the fixed 8-plane array")]
+pub struct TooManyAudioPlanes {
+  /// The out-of-range `plane_count` value the caller supplied.
+  plane_count: u8,
+}
+
+impl TooManyAudioPlanes {
+  /// Constructs a new [`TooManyAudioPlanes`] payload.
+  #[inline]
+  pub const fn new(plane_count: u8) -> Self {
+    Self { plane_count }
+  }
+  /// The out-of-range `plane_count` value the caller supplied.
+  #[inline]
+  pub const fn plane_count(&self) -> u8 {
+    self.plane_count
+  }
 }
 
 /// A decoded video frame.
@@ -128,7 +166,9 @@ impl<P, E, D> VideoFrame<P, E, D> {
     extra: E,
   ) -> Result<Self, FrameError> {
     if plane_count as usize > 4 {
-      return Err(FrameError::TooManyVideoPlanes { plane_count });
+      return Err(FrameError::TooManyVideoPlanes(TooManyVideoPlanes::new(
+        plane_count,
+      )));
     }
     Ok(Self {
       pts: None,
@@ -355,7 +395,9 @@ impl<S, C, E, D> AudioFrame<S, C, E, D> {
     extra: E,
   ) -> Result<Self, FrameError> {
     if plane_count as usize > 8 {
-      return Err(FrameError::TooManyAudioPlanes { plane_count });
+      return Err(FrameError::TooManyAudioPlanes(TooManyAudioPlanes::new(
+        plane_count,
+      )));
     }
     Ok(Self {
       pts: None,
@@ -683,7 +725,7 @@ mod tests {
       VideoFrame::try_new(Dimensions::new(64, 64), 0u32, empty_planes(), 5, ());
     assert!(matches!(
       res,
-      Err(FrameError::TooManyVideoPlanes { plane_count: 5 })
+      Err(FrameError::TooManyVideoPlanes(p)) if p.plane_count() == 5,
     ));
   }
 
@@ -708,7 +750,7 @@ mod tests {
       AudioFrame::try_new(48_000, 1024, 2, 0u32, 0u32, audio_planes(), 9, ());
     assert!(matches!(
       res,
-      Err(FrameError::TooManyAudioPlanes { plane_count: 9 })
+      Err(FrameError::TooManyAudioPlanes(p)) if p.plane_count() == 9,
     ));
   }
 

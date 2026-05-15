@@ -33,6 +33,20 @@ shape and updates the type aliases the crate re-exports.
   inherit the upstream `PixelFormat` shape change. Downstream
   callers matching on `Unknown` in destination frames need to
   switch to `Unknown(_)`.
+- **`Error` enum variants** are now newtype-tuple form wrapping
+  payload structs (matches the convention in
+  [`videoframe`](https://crates.io/crates/videoframe)). Affected
+  variants: `HwDeviceInitFailed`, `AllBackendsFailed`,
+  `FallbackFailed`. Pure tuple variants (`Ffmpeg`, `NoCodec`,
+  `BackendUnsupportedByCodec`) unchanged. Callers destructuring
+  `Err(Error::AllBackendsFailed { attempts, .. })` must switch to
+  `Err(Error::AllBackendsFailed(p))` and call `p.attempts()` /
+  `p.unconsumed_packets()`. Owning-move paths for the rescued
+  packets are preserved via `p.into_unconsumed_packets()` /
+  `p.into_parts()`, so non-seekable callers can still relinquish
+  the `Vec<Packet>` without cloning. The hand-written `Debug` that
+  printed `[N packets]` (because `ffmpeg_next::Packet` has no
+  `Debug`) now lives on the payload structs.
 
 ### Changed
 

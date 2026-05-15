@@ -31,6 +31,17 @@ re-exports.
   useful). Boundary adapters (`mediadecode-ffmpeg`,
   `mediadecode-webcodecs`) have been updated to preserve the raw
   FFmpeg / WebCodecs identifier through the cast.
+- **`FrameError` variants** are now newtype-tuple form wrapping
+  payload structs (matches the convention in
+  [`videoframe`](https://crates.io/crates/videoframe)). Affected
+  variants: `TooManyVideoPlanes`, `TooManyAudioPlanes`. Callers
+  destructuring `Err(FrameError::TooManyVideoPlanes { plane_count })`
+  must switch to `Err(FrameError::TooManyVideoPlanes(p))` and call
+  `p.plane_count()`. The payload structs
+  ([`frame::TooManyVideoPlanes`](https://docs.rs/mediadecode/0.2/mediadecode/frame/struct.TooManyVideoPlanes.html),
+  [`frame::TooManyAudioPlanes`](https://docs.rs/mediadecode/0.2/mediadecode/frame/struct.TooManyAudioPlanes.html))
+  carry the same `plane_count: u8` and expose it via a
+  `pub const fn plane_count(&self) -> u8` accessor.
 - **`PixelFormat` enum body**: now sourced from
   [`videoframe::pixel_format::PixelFormat`](https://docs.rs/videoframe/0.2/videoframe/pixel_format/enum.PixelFormat.html)
   and covers **every** FFmpeg `n8.1` `AVPixelFormat` slug (~270 variants,
